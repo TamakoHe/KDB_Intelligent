@@ -1,0 +1,27 @@
+{
+  "name": "kdb_intelligent",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TamakoHe/KDB_Intelligent.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/TamakoHe/KDB_Intelligent/issues"
+  },
+  "homepage": "https://github.com/TamakoHe/KDB_Intelligent#readme",
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}

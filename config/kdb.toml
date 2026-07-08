@@ -1,0 +1,26 @@
+[app]
+name = "kdb-api"
+default_generation = "auto"
+default_output_dor = "./out"
+timeout_ms = 10000
+retry_count = 2
+[routing]
+gen3_prefixes = ["4","6"]
+gen2_prefixes = ["5","8","9"]
+[environment.gen3]
+base_url = "https://battery.kadianbao.com/stage-api"
+env_name = "gen3"
+[environment.gen2]
+base_url = "https://admin.kadianbao.com/stage-api"
+env_name = "gen2"
+[confirm]
+require_for_command = true
+require_for_parameter_write = true
+require_for_ota = true
+[defaults.status]
+page_size = 15
+[defaults.export]
+format = "xlsx"
+[defaults.parameter]
+wait_ms = 3000
+read_before_write = true

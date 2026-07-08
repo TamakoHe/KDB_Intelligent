@@ -3,3 +3,4 @@
 *.pdf
 temp/
 out/
+kdb.local.toml
