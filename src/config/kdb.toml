@@ -1,0 +1,7 @@
+[app]
+name = "kdb-api"
+default_generation = "auto"
+default_output_dor = "./out"
+timeout_ms = 10000
+retry_count = 2
+[r]
