@@ -21,14 +21,15 @@ export async function getRuntimeConfig(opts?: ConfigOpts): Promise<RuntimeConfig
     ]);
     return strictMerge(publicCfg, localCfg);
 }
-export function resolveGeneration(batteryId: string): "gen2" | "gen3" {
+export function resolveGeneration(batteryId: string, cfg: RuntimeConfig): "gen2" | "gen3" {
     if (!batteryId || typeof batteryId !== 'string') {
         throw new Error("无效的电池编号：编号不能为空");
     }
     const prefix = batteryId.charAt(0);
-    if (['4','6'].includes(prefix)){
+
+    if (cfg.routing.gen3_prefixes.includes(prefix)){
         return "gen3";
-    }else if (['5','8','9'].includes(prefix)){
+    }else if (cfg.routing.gen2_prefixes.includes(prefix)){
         return "gen2";
     }else{
         throw new Error(`未知的电池编号前缀 [${prefix}]，无法解析对应的数据库代数。`);
