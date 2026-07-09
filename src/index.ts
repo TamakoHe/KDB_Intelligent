@@ -1,4 +1,4 @@
-import {getRuntimeConfig, type KdbConfig, type RuntimeConfig} from "./core/config/index.js"
+import {getRuntimeConfig, type RuntimeConfig} from "./core/config/index.js"
 import { TokenStore } from "./core/auth/token-store.js"
 import { HttpClient } from "./core/http/http-client.js"
 import { KdbSiteClient } from "./clients/kdb-site-client.js"
@@ -7,17 +7,19 @@ export {HttpClient, HttpError} from "./core/http/http-client.js"
 export {TokenStore} from "./core/auth/token-store.js"
 export {getRuntimeConfig, type RuntimeConfig} from "./core/config/index.js"
 export {KdbSiteClient} from "./clients/kdb-site-client.js"
+export { queryBatteryBaseStatus, queryLatestReportStatus, queryBatteryStatus, type UnifiedBatteryStatus } from "./application/status/query-battery-status.js"
+export { exportExcel, type ExportType } from "./application/export/export-excel.js"
 import * as path from 'path';
 import { fileURLToPath } from "url"
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 export interface KdbApiClients {
-    config: KdbConfig,
+    config: RuntimeConfig,
     gen2: KdbSiteClient,
     gen3: KdbSiteClient,
     getClient(generation: keyof RuntimeConfig['environment']): KdbSiteClient;
 }
-function createSiteClient(generation: keyof RuntimeConfig['environment'], cfg: KdbConfig, tokenStore: TokenStore): KdbSiteClient{
+function createSiteClient(generation: keyof RuntimeConfig['environment'], cfg: RuntimeConfig, tokenStore: TokenStore): KdbSiteClient{
     const env = cfg.environment[generation];
     return new KdbSiteClient(generation, new HttpClient({
         baseUrl: env.base_url,

@@ -1,6 +1,7 @@
 import type {RuntimeConfig} from "../config/index.js"
 import {TokenStore} from "../auth/token-store.js"
-export type QueryValue = string | number | boolean | null | undefined;
+import { buildSearchParams, type QueryObject, type QueryValue } from "./query-string.js"
+export type { QueryValue, QueryObject } from "./query-string.js"
 export interface HttpClientOptions {
     baseUrl: string,
     timeoutMs: number,
@@ -11,9 +12,10 @@ export interface HttpClientOptions {
 export interface RequestOptions {
     path: string,
     method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
-    query?: Record<string, QueryValue>,
+    query?: QueryObject,
     body?: unknown,
-    headers?: Record<string, string>
+    headers?: Record<string, string>,
+    timeoutMs?: number
 }
 export interface HttpResponse<T> {
     data: T,
@@ -29,17 +31,13 @@ export class HttpError extends Error {
         this.name = "HttpError"
     }
 }
-function buildUrl(baseUrl: string, path: string, query?: Record<string, QueryValue>): string {
+function buildUrl(baseUrl: string, path: string, query?: QueryObject): string {
     const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
     const p = path.startsWith("/") ? path.slice(1) : path;
     const url = new URL(p, base);
-    if(query){
-        for (const [key,value] of Object.entries(query)){
-            if(value === undefined || value === null) {
-                continue;
-            }
-            url.searchParams.set(key, String(value));
-        }
+    const params = buildSearchParams(query)
+    for (const [key, value] of params.entries()) {
+        url.searchParams.set(key, value)
     }
     return url.toString();
 }
@@ -50,7 +48,7 @@ export class HttpClient {
         let lastError: unknown;
         for(let attempt=0; attempt<=this.options.retryCount; attempt++){
             const controller = new AbortController();
-            const timeout = setTimeout(()=>controller.abort(), this.options.timeoutMs);
+            const timeout = setTimeout(()=>controller.abort(), request.timeoutMs ?? this.options.timeoutMs);
             try{
                 const response = await fetch(url, {
                     method: request.method ?? "GET",
@@ -83,6 +81,83 @@ export class HttpClient {
                 throw error;
                 }
                 // 如果没达到最大次数，什么都不做，循环会自动进入下一次 iteration，再次发起请求
+            }
+        }
+        throw lastError instanceof Error ? lastError : new Error("请求失败");
+    }
+
+    async requestRaw(request: RequestOptions): Promise<HttpResponse<{ text: string }>> {
+        const url = buildUrl(this.options.baseUrl, request.path, request.query);
+        let lastError: unknown;
+        for(let attempt=0; attempt<=this.options.retryCount; attempt++){
+            const controller = new AbortController();
+            const timeout = setTimeout(()=>controller.abort(), request.timeoutMs ?? this.options.timeoutMs);
+            try{
+                const response = await fetch(url, {
+                    method: request.method ?? "GET",
+                    headers: {
+                        "Content-Type": "application/json;charset=UTF-8",
+                        ...this.options.tokenStore.getAuthHeaders(this.options.generation),
+                        ...request.headers,
+                    },
+                    signal: controller.signal, 
+                    ...(request.body !== undefined ? { body: JSON.stringify(request.body) } : {})
+                });
+                clearTimeout(timeout);
+                const text = await response.text();
+                if (!response.ok){
+                    throw new HttpError(`HTTP ${response.status}`, response.status, text);
+                }
+                return {
+                    data: { text },
+                    status:response.status,
+                    headers:response.headers
+                }
+            }catch(error){
+                clearTimeout(timeout);
+                lastError = error;
+                if (attempt >= this.options.retryCount) {
+                    throw error;
+                }
+            }
+        }
+        throw lastError instanceof Error ? lastError : new Error("请求失败");
+    }
+
+    async requestArrayBuffer(request: RequestOptions): Promise<HttpResponse<ArrayBuffer>> {
+        const url = buildUrl(this.options.baseUrl, request.path, request.query);
+        let lastError: unknown;
+        for (let attempt = 0; attempt <= this.options.retryCount; attempt++) {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), request.timeoutMs ?? this.options.timeoutMs);
+            try {
+                const response = await fetch(url, {
+                    method: request.method ?? "GET",
+                    headers: {
+                        "Content-Type": "application/json;charset=UTF-8",
+                        ...this.options.tokenStore.getAuthHeaders(this.options.generation),
+                        ...request.headers,
+                    },
+                    signal: controller.signal,
+                    ...(request.body !== undefined ? { body: JSON.stringify(request.body) } : {})
+                });
+                clearTimeout(timeout);
+                if (!response.ok) {
+                    const text = await response.text();
+                    throw new HttpError(`HTTP ${response.status}`, response.status, text);
+                }
+                const data = await response.arrayBuffer();
+                return {
+                    data,
+                    status: response.status,
+                    headers: response.headers
+                };
+            } catch (error) {
+                clearTimeout(timeout);
+                lastError = error;
+                if (attempt >= this.options.retryCount) {
+                    throw error;
+                }
             }
         }
         throw lastError instanceof Error ? lastError : new Error("请求失败");

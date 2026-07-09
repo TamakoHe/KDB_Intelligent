@@ -1,4 +1,4 @@
-import { HttpClient, type HttpResponse, type QueryValue} from "../core/http/http-client.js";
+import { HttpClient, type HttpResponse, type QueryObject } from "../core/http/http-client.js";
 import type {RuntimeConfig} from "../core/config/index.js"
 export interface GetInfoResponse {
     code?: number | string,
@@ -22,10 +22,33 @@ export class KdbSiteClient {
     request<T>(options:{
         path: string,
         method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
-        query?: Record<string, QueryValue>,
+        query?: QueryObject,
         body?: unknown,
-        headers?: Record<string, string>
+        headers?: Record<string, string>,
+        timeoutMs?: number
     }): Promise<HttpResponse<T>>{
         return this.httpClient.request<T>(options);
+    }
+
+    requestArrayBuffer(options:{
+        path: string,
+        method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+        query?: QueryObject,
+        body?: unknown,
+        headers?: Record<string, string>,
+        timeoutMs?: number
+    }): Promise<HttpResponse<ArrayBuffer>>{
+        return this.httpClient.requestArrayBuffer(options);
+    }
+
+    requestRaw(options:{
+        path: string,
+        method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+        query?: QueryObject,
+        body?: unknown,
+        headers?: Record<string, string>,
+        timeoutMs?: number
+    }): Promise<HttpResponse<{ text: string }>>{
+        return this.httpClient.requestRaw(options);
     }
 }
