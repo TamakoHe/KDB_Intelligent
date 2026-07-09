@@ -34,8 +34,8 @@ export function strictMerge<T extends Record<string, any>, U extends Record<stri
         if (key in result){
             const val1 = result[key];
             const val2 = obj2[key];
-            const isObj1 = typeof val1 === 'object' && val1 !== null && Array.isArray(val1);
-            const isObj2 = typeof val2 === 'object' && val2 !== null && Array.isArray(val2);
+            const isObj1 = typeof val1 === 'object' && val1 !== null && !Array.isArray(val1);
+            const isObj2 = typeof val2 === 'object' && val2 !== null && !Array.isArray(val2);
             if (isObj1 && isObj2){
                 result[key] = strictMerge(val1, val2, currentPath);
             }else{

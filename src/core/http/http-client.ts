@@ -30,7 +30,9 @@ export class HttpError extends Error {
     }
 }
 function buildUrl(baseUrl: string, path: string, query?: Record<string, QueryValue>): string {
-    const url = new URL(path, `${baseUrl.replace(/\/$/,"")}`);
+    const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+    const p = path.startsWith("/") ? path.slice(1) : path;
+    const url = new URL(p, base);
     if(query){
         for (const [key,value] of Object.entries(query)){
             if(value === undefined || value === null) {
