@@ -8,7 +8,10 @@ export {TokenStore} from "./core/auth/token-store.js"
 export {getRuntimeConfig, type RuntimeConfig} from "./core/config/index.js"
 export {KdbSiteClient} from "./clients/kdb-site-client.js"
 export { queryBatteryBaseStatus, queryLatestReportStatus, queryBatteryStatus, type UnifiedBatteryStatus } from "./application/status/query-battery-status.js"
+export { queryBatteryStatusById } from "./application/status/query-battery-by-id.js"
 export { exportExcel, type ExportType } from "./application/export/export-excel.js"
+export { exportBatteryRealtimeData, type BatteryGeneration } from "./application/export/export-realtime-data.js"
+export { formatLocalDateTime, parseDateTime, resolveTimeRange, type DateTimeInput } from "./core/date-time.js"
 import * as path from 'path';
 import { fileURLToPath } from "url"
 const __filename = fileURLToPath(import.meta.url)

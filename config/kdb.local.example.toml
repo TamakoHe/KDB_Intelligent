@@ -1,0 +1,9 @@
+[credentials.gen2]
+token_env = "在这里填写 Gen2 Bearer Token（不含 Bearer 前缀）"
+username_env = ""
+password_env = ""
+
+[credentials.gen3]
+token_env = "在这里填写 Gen3 Bearer Token（不含 Bearer 前缀）"
+username_env = ""
+password_env = ""

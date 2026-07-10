@@ -12,7 +12,7 @@ export interface HttpClientOptions {
 export interface RequestOptions {
     path: string,
     method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
-    query?: QueryObject,
+    query?: QueryObject | undefined,
     body?: unknown,
     headers?: Record<string, string>,
     timeoutMs?: number

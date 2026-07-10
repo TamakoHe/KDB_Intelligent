@@ -6,3 +6,4 @@ temp/
 out/
 kdb.local.toml
 node_modules/
+dist/

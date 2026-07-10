@@ -22,7 +22,7 @@ export class KdbSiteClient {
     request<T>(options:{
         path: string,
         method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
-        query?: QueryObject,
+        query?: QueryObject | undefined,
         body?: unknown,
         headers?: Record<string, string>,
         timeoutMs?: number
@@ -33,7 +33,7 @@ export class KdbSiteClient {
     requestArrayBuffer(options:{
         path: string,
         method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
-        query?: QueryObject,
+        query?: QueryObject | undefined,
         body?: unknown,
         headers?: Record<string, string>,
         timeoutMs?: number
@@ -44,7 +44,7 @@ export class KdbSiteClient {
     requestRaw(options:{
         path: string,
         method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
-        query?: QueryObject,
+        query?: QueryObject | undefined,
         body?: unknown,
         headers?: Record<string, string>,
         timeoutMs?: number

@@ -10,15 +10,15 @@ export type Generation = "gen2" | "gen3"
 
 export type UnifiedBatteryStatus = {
   generation: Generation
-  batteryId?: string
-  batteryStatus?: string
-  faultStatus?: string
-  chargeDischargeStatus?: string
-  networkStatus?: string
-  networkTime?: string
-  bluetoothStatus?: string
-  bluetoothTime?: string
-  logTime?: string
+  batteryId?: string | undefined
+  batteryStatus?: string | undefined
+  faultStatus?: string | undefined
+  chargeDischargeStatus?: string | undefined
+  networkStatus?: string | undefined
+  networkTime?: string | undefined
+  bluetoothStatus?: string | undefined
+  bluetoothTime?: string | undefined
+  logTime?: string | undefined
   raw?: Record<string, unknown>
 }
 
@@ -75,7 +75,7 @@ function mapGen3ReportBatteryLogRow(row: Record<string, unknown>): UnifiedBatter
 export async function queryBatteryBaseStatus(args: {
   clients: KdbApiClients
   generation: Generation
-  query?: QueryObject
+  query?: QueryObject | undefined
 }): Promise<{ total: number; rows: UnifiedBatteryStatus[]; raw: TableDataInfo }> {
   if (args.generation === "gen2") {
     const res = await listGen2BatteryBase(args.clients.gen2, args.query)
@@ -93,7 +93,7 @@ export async function queryBatteryBaseStatus(args: {
 export async function queryLatestReportStatus(args: {
   clients: KdbApiClients
   generation: Generation
-  query?: QueryObject
+  query?: QueryObject | undefined
 }): Promise<{ total: number; rows: UnifiedBatteryStatus[]; raw: TableDataInfo }> {
   if (args.generation === "gen2") {
     const res = await listGen2LatestBatteryTable(args.clients.gen2, args.query)
@@ -127,4 +127,3 @@ export async function queryBatteryStatus(args: {
   ])
   return { base: { total: base.total, rows: base.rows }, latest: { total: latest.total, rows: latest.rows } }
 }
-
