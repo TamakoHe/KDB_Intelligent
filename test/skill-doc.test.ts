@@ -9,7 +9,7 @@ test("SKILL.md covers every public CLI workflow", async () => {
   ) as { files?: string[] }
   assert.match(skill, /^---\nname: kdb-battery-cli\ndescription: .+\n---\n/)
 
-  for (const command of ["ready -b", "status -b", "export realtime", "export <type>"]) {
+  for (const command of ["battery status", "battery ready", "battery mode get", "battery command send", "battery parameter get", "batch status", "batch command send", "batch parameter read", "batch export realtime", "command result", "ready -b", "status -b", "export realtime", "export <type>", "command list", "command send", "parameter list", "parameter read", "parameter write"]) {
     assert.ok(skill.includes(command), `SKILL.md 缺少 CLI 工作流: ${command}`)
   }
 
@@ -27,11 +27,11 @@ test("SKILL.md covers every public CLI workflow", async () => {
     assert.ok(skill.includes(`\`${exportType}\``), `SKILL.md 缺少导出类型: ${exportType}`)
   }
 
-  assert.match(skill, /Never simulate command readiness by sending a test command/)
-  assert.match(skill, /complete battery-base row/)
-  assert.match(skill, /complete `details` object/)
-  assert.match(skill, /detailFieldLabels/)
-  assert.match(skill, /Both Gen2 and Gen3/)
-  assert.match(skill, /Update this `SKILL\.md` in the same change/)
+  assert.match(skill, /not a test command/)
+  assert.match(skill, /confirmationToken/)
+  assert.match(skill, /QUEUED_FOR_APP/)
+  assert.match(skill, /Mixed Gen2\/Gen3 batches/)
+  assert.match(skill, /physical device effect remains unverified/)
+  assert.match(skill, /update this `SKILL\.md` in the same change/)
   assert.ok(packageJson.files?.includes("SKILL.md"), "npm 打包清单必须包含 SKILL.md")
 })

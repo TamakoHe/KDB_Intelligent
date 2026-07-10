@@ -19,7 +19,18 @@ export type UnifiedBatteryStatus = {
   bluetoothStatus?: string | undefined
   bluetoothTime?: string | undefined
   logTime?: string | undefined
+  workingModeStatus?: string | undefined
+  workingModeText?: string | undefined
   raw?: Record<string, unknown>
+}
+
+export function gen3WorkingModeText(value: unknown): string | undefined {
+  const status = asString(value)
+  if (status === "0") return "正常模式"
+  if (status === "1") return "测试模式"
+  if (status === "2") return "锁电模式"
+  if (status === "3") return "应急模式"
+  return status === undefined ? undefined : "未知模式"
 }
 
 function toArray<T>(rows: T[] | undefined): T[] {

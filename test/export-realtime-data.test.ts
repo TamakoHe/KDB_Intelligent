@@ -221,3 +221,16 @@ test("Gen3 状态详情覆盖网站 Excel 的全部 55 列并保留数值状态"
   assert.equal(Object.keys(partialResult.details ?? {}).length, 55)
   assert.equal(partialResult.details?.hardwareVersion, null)
 })
+
+test("Gen3 status 从 Cycle01 实时上报补充应急模式", async () => {
+  const result = await queryBatteryStatusById({
+    clients: createReadinessClients({
+      baseRows: [{ batteryId: "40457BDE", lte4gStatus: "1", workingModeStatus: 3 }],
+      registrationRows: [],
+    }),
+    batteryId: "40457BDE",
+  })
+  assert.equal(result.summary?.workingModeStatus, "3")
+  assert.equal(result.summary?.workingModeText, "应急模式")
+  assert.equal(result.latestRealtime?.workingModeStatus, 3)
+})

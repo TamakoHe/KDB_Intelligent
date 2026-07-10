@@ -15,7 +15,9 @@ export interface RequestOptions {
     query?: QueryObject | undefined,
     body?: unknown,
     headers?: Record<string, string>,
-    timeoutMs?: number
+    timeoutMs?: number,
+    /** Override retries for this request. Mutating requests default to zero retries. */
+    retryCount?: number
 }
 export interface HttpResponse<T> {
     data: T,
@@ -43,10 +45,15 @@ function buildUrl(baseUrl: string, path: string, query?: QueryObject): string {
 }
 export class HttpClient {
     constructor(private readonly options: HttpClientOptions){}
+    private retryCount(request: RequestOptions): number {
+        if (request.retryCount !== undefined) return request.retryCount;
+        return (request.method ?? "GET") === "GET" ? this.options.retryCount : 0;
+    }
     async request<T>(request: RequestOptions): Promise<HttpResponse<T>>{
         const url = buildUrl(this.options.baseUrl, request.path, request.query);
+        const retryCount = this.retryCount(request);
         let lastError: unknown;
-        for(let attempt=0; attempt<=this.options.retryCount; attempt++){
+        for(let attempt=0; attempt<=retryCount; attempt++){
             const controller = new AbortController();
             const timeout = setTimeout(()=>controller.abort(), request.timeoutMs ?? this.options.timeoutMs);
             try{
@@ -77,7 +84,7 @@ export class HttpClient {
                 lastError = error;     // 记录这次的错误
                 
                 // 如果当前的尝试次数已经达到了设定的最大重试次数，就不再重试了，直接向外抛出错误
-                if (attempt >= this.options.retryCount) {
+                if (attempt >= retryCount) {
                 throw error;
                 }
                 // 如果没达到最大次数，什么都不做，循环会自动进入下一次 iteration，再次发起请求
@@ -88,8 +95,9 @@ export class HttpClient {
 
     async requestRaw(request: RequestOptions): Promise<HttpResponse<{ text: string }>> {
         const url = buildUrl(this.options.baseUrl, request.path, request.query);
+        const retryCount = this.retryCount(request);
         let lastError: unknown;
-        for(let attempt=0; attempt<=this.options.retryCount; attempt++){
+        for(let attempt=0; attempt<=retryCount; attempt++){
             const controller = new AbortController();
             const timeout = setTimeout(()=>controller.abort(), request.timeoutMs ?? this.options.timeoutMs);
             try{
@@ -116,7 +124,7 @@ export class HttpClient {
             }catch(error){
                 clearTimeout(timeout);
                 lastError = error;
-                if (attempt >= this.options.retryCount) {
+                if (attempt >= retryCount) {
                     throw error;
                 }
             }
@@ -126,8 +134,9 @@ export class HttpClient {
 
     async requestArrayBuffer(request: RequestOptions): Promise<HttpResponse<ArrayBuffer>> {
         const url = buildUrl(this.options.baseUrl, request.path, request.query);
+        const retryCount = this.retryCount(request);
         let lastError: unknown;
-        for (let attempt = 0; attempt <= this.options.retryCount; attempt++) {
+        for (let attempt = 0; attempt <= retryCount; attempt++) {
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), request.timeoutMs ?? this.options.timeoutMs);
             try {
@@ -155,7 +164,7 @@ export class HttpClient {
             } catch (error) {
                 clearTimeout(timeout);
                 lastError = error;
-                if (attempt >= this.options.retryCount) {
+                if (attempt >= retryCount) {
                     throw error;
                 }
             }

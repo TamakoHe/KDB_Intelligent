@@ -4,6 +4,9 @@ import { queryBatteryStatus } from "./query-battery-status.js"
 import type { UnifiedBatteryStatus } from "./query-battery-status.js"
 import { GEN2_BATTERY_BASE_FIELD_LABELS } from "../../domain/gen2/status/hckd-battery-base-api.js"
 import { GEN3_BATTERY_BASE_FIELD_LABELS } from "../../domain/gen3/status/kdb-battery-base-api.js"
+import { listGen3Cycle01MsgLog } from "../../domain/gen3/logs/kdb-cycle01-msg-log-api.js"
+import { assertTableOk } from "../../core/api/table-data.js"
+import { gen3WorkingModeText } from "./query-battery-status.js"
 
 export type BatteryStatusByIdResult = {
   batteryId: string
@@ -13,6 +16,8 @@ export type BatteryStatusByIdResult = {
   details: Record<string, unknown> | null
   detailFieldLabels: Record<string, string>
   latestReport: Record<string, unknown> | null
+  /** Gen3 最新 Cycle01 实时上报，含 workingModeStatus（0正常/1测试/2锁电/3应急）。 */
+  latestRealtime: Record<string, unknown> | null
   base: { total: number; rows: UnifiedBatteryStatus[] }
   latest: { total: number; rows: UnifiedBatteryStatus[] }
 }
@@ -51,6 +56,18 @@ export async function queryBatteryStatusById(args: {
         ? { params: { likeBatteryId: batteryId } }
         : { batteryId, pageNum: 1, pageSize: 20, orderByColumn: "logTime", isAsc: "desc" },
   })
+  const realtimeResult = generation === "gen3"
+    ? await listGen3Cycle01MsgLog(args.clients.gen3, {
+        batteryId,
+        pageNum: 1,
+        pageSize: 1,
+        orderByColumn: "logTime",
+        isAsc: "desc",
+      })
+    : undefined
+  if (realtimeResult) {
+    assertTableOk({ generation: "gen3", action: "listCycle01MsgLog", result: realtimeResult.data })
+  }
   const firstBase = result.base.rows[0]
   const firstLatest = result.latest.rows[0]
   const detailFieldLabels =
@@ -58,6 +75,12 @@ export async function queryBatteryStatusById(args: {
   const summary = firstBase
     ? Object.fromEntries(Object.entries(firstBase).filter(([key]) => key !== "raw")) as Omit<UnifiedBatteryStatus, "raw">
     : null
+  const latestRealtime = realtimeResult?.data.rows?.[0] as Record<string, unknown> | undefined
+  const workingModeStatus = latestRealtime?.workingModeStatus
+  if (summary && workingModeStatus !== undefined) {
+    summary.workingModeStatus = String(workingModeStatus)
+    summary.workingModeText = gen3WorkingModeText(workingModeStatus)
+  }
 
   return {
     batteryId,
@@ -67,6 +90,7 @@ export async function queryBatteryStatusById(args: {
     details: completeDetails(firstBase?.raw, detailFieldLabels),
     detailFieldLabels,
     latestReport: firstLatest?.raw ?? null,
+    latestRealtime: latestRealtime ?? null,
     base: result.base,
     latest: result.latest,
   }

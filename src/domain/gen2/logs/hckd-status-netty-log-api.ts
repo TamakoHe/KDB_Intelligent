@@ -6,6 +6,13 @@ export type Gen2StatusNettyLogRow = {
   id?: number
   batteryId?: string
   logTime?: string
+  createTime?: string
+  directionType?: string
+  msgType?: number
+  msgStatus?: number
+  msgKey?: string
+  msgId?: string
+  msgLog?: string
   [key: string]: unknown
 }
 

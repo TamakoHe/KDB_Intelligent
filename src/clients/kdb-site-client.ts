@@ -25,7 +25,8 @@ export class KdbSiteClient {
         query?: QueryObject | undefined,
         body?: unknown,
         headers?: Record<string, string>,
-        timeoutMs?: number
+        timeoutMs?: number,
+        retryCount?: number
     }): Promise<HttpResponse<T>>{
         return this.httpClient.request<T>(options);
     }
@@ -36,7 +37,8 @@ export class KdbSiteClient {
         query?: QueryObject | undefined,
         body?: unknown,
         headers?: Record<string, string>,
-        timeoutMs?: number
+        timeoutMs?: number,
+        retryCount?: number
     }): Promise<HttpResponse<ArrayBuffer>>{
         return this.httpClient.requestArrayBuffer(options);
     }
@@ -47,7 +49,8 @@ export class KdbSiteClient {
         query?: QueryObject | undefined,
         body?: unknown,
         headers?: Record<string, string>,
-        timeoutMs?: number
+        timeoutMs?: number,
+        retryCount?: number
     }): Promise<HttpResponse<{ text: string }>>{
         return this.httpClient.requestRaw(options);
     }
