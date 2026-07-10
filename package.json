@@ -17,7 +17,8 @@
     "dist",
     "config/kdb.toml",
     "config/kdb.local.example.toml",
-    "README.md"
+    "README.md",
+    "SKILL.md"
   ],
   "directories": {
     "doc": "docs"
@@ -27,7 +28,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "kdb": "node --import tsx src/interfaces/cli/cli.ts",
     "prepack": "npm run build",
-    "test:unit": "node --import tsx --test test/export-realtime-data.test.ts",
+    "test:unit": "node --import tsx --test test/*.test.ts",
     "test:cli": "npm run build && node dist/interfaces/cli/cli.js --help",
     "test": "npm run typecheck && npm run test:unit && npm run test:cli"
   },

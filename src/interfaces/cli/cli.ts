@@ -5,6 +5,7 @@ import {
   createKdbClients,
   exportBatteryRealtimeData,
   exportExcel,
+  queryBatteryCommandReadiness,
   queryBatteryStatusById,
   resolveTimeRange,
   type ExportType,
@@ -50,6 +51,7 @@ function help(): string {
   kdb export realtime --battery-id <编号> [时间选项] [--output <文件>]
   kdb export <类型> [--generation gen2|gen3] [筛选选项]
   kdb status --battery-id <编号>
+  kdb command-ready --battery-id <编号>
 
 实时数据导出:
   --battery-id, -b <编号>    必填；自动判断 Gen2/Gen3
@@ -70,12 +72,17 @@ function help(): string {
   --help, -h                 显示帮助
   --version                  显示版本
 
+命令可下发性:
+  command-ready（别名 ready）只查询状态，不会发送测试命令。
+  可以下发时退出码为 0；不可下发或状态未知时退出码为 2。
+
 示例:
   kdb export realtime -b 8F9AE708 --start "2026-07-01 00:00:00" --end "2026-07-02 00:00:00"
   kdb export realtime -b 62413828 --hours 6 -o out/realtime.xlsx
   kdb export nettyLog -b 8F9AE708 --param beginCreateTime="2026-07-01 00:00:00"
   kdb export batteryBase --generation gen3 --query batteryStatus=1
   kdb status -b 62413828
+  kdb command-ready -b 62413828
 `
 }
 
@@ -265,6 +272,35 @@ async function runStatus(args: ParsedArgs): Promise<void> {
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
 }
 
+async function runCommandReady(args: ParsedArgs): Promise<void> {
+  validateOptions(args, ["battery-id", "generation", "json"])
+  const batteryId = requiredOption(args, "battery-id")
+  const clients = await createClients(args)
+  const generation = parseGeneration(option(args, "generation"))
+  const result = await queryBatteryCommandReadiness({
+    clients,
+    batteryId,
+    ...(generation ? { generation } : {}),
+  })
+
+  if (args.options.has("json")) {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+  } else {
+    process.stdout.write(
+      [
+        `可以直接下发: ${result.canSendCommand ? "是" : "否"}`,
+        `结论: ${result.state}（${result.stateText}）`,
+        `电池: ${result.batteryId} / ${result.generation}`,
+        `4G 网络: ${result.networkStatusText}${result.networkTime ? `，最后状态时间 ${result.networkTime}` : ""}`,
+        `注册: ${result.registrationText}`,
+        `原因: ${result.reason}`,
+        "说明: 此命令不发送探测指令；真正下发时后台仍会复核实时 Netty 通道。",
+      ].join("\n") + "\n",
+    )
+  }
+  if (!result.canSendCommand) process.exitCode = 2
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
   if (args.options.has("version")) {
@@ -288,6 +324,11 @@ async function main(): Promise<void> {
   if (command === "status") {
     if (args.positionals.length > 1) throw new Error(`多余参数: ${args.positionals.slice(1).join(" ")}`)
     await runStatus(args)
+    return
+  }
+  if (command === "command-ready" || command === "ready") {
+    if (args.positionals.length > 1) throw new Error(`多余参数: ${args.positionals.slice(1).join(" ")}`)
+    await runCommandReady(args)
     return
   }
   throw new Error(`未知命令: ${command}；使用 kdb --help 查看帮助`)

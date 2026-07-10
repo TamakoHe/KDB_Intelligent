@@ -26,15 +26,21 @@ function toArray<T>(rows: T[] | undefined): T[] {
   return Array.isArray(rows) ? rows : []
 }
 
+function asString(value: unknown): string | undefined {
+  if (typeof value === "string") return value
+  if (typeof value === "number") return String(value)
+  return undefined
+}
+
 function mapGen2BatteryBaseRow(row: Record<string, unknown>): UnifiedBatteryStatus {
   return {
     generation: "gen2",
-    batteryId: typeof row.batteryId === "string" ? row.batteryId : undefined,
-    batteryStatus: typeof row.batteryStatus === "string" ? row.batteryStatus : undefined,
-    networkStatus: typeof row.lte4gStatus === "string" ? row.lte4gStatus : undefined,
-    networkTime: typeof row.lte4gTime === "string" ? row.lte4gTime : undefined,
-    bluetoothStatus: typeof row.bluetoothStatus === "string" ? row.bluetoothStatus : undefined,
-    bluetoothTime: typeof row.bluetoothTime === "string" ? row.bluetoothTime : undefined,
+    batteryId: asString(row.batteryId),
+    batteryStatus: asString(row.batteryStatus),
+    networkStatus: asString(row.lte4gStatus),
+    networkTime: asString(row.lte4gTime),
+    bluetoothStatus: asString(row.bluetoothStatus),
+    bluetoothTime: asString(row.bluetoothTime),
     raw: row,
   }
 }
@@ -42,13 +48,14 @@ function mapGen2BatteryBaseRow(row: Record<string, unknown>): UnifiedBatteryStat
 function mapGen3BatteryBaseRow(row: Record<string, unknown>): UnifiedBatteryStatus {
   return {
     generation: "gen3",
-    batteryId: typeof row.batteryId === "string" ? row.batteryId : undefined,
-    batteryStatus: typeof row.batteryStatus === "string" ? row.batteryStatus : undefined,
-    faultStatus: typeof row.faultStatus === "string" ? row.faultStatus : undefined,
-    chargeDischargeStatus:
-      typeof row.chargeDischargeStatus === "string" ? row.chargeDischargeStatus : undefined,
-    networkStatus: typeof row.lte4gStatus === "string" ? row.lte4gStatus : undefined,
-    bluetoothStatus: typeof row.bluetoothStatus === "string" ? row.bluetoothStatus : undefined,
+    batteryId: asString(row.batteryId),
+    batteryStatus: asString(row.batteryStatus),
+    faultStatus: asString(row.faultStatus),
+    chargeDischargeStatus: asString(row.chargeDischargeStatus),
+    networkStatus: asString(row.lte4gStatus),
+    networkTime: asString(row.lte4gTime),
+    bluetoothStatus: asString(row.bluetoothStatus),
+    bluetoothTime: asString(row.bluetoothTime),
     raw: row,
   }
 }
@@ -56,9 +63,9 @@ function mapGen3BatteryBaseRow(row: Record<string, unknown>): UnifiedBatteryStat
 function mapGen2LatestTableRow(row: Record<string, unknown>): UnifiedBatteryStatus {
   return {
     generation: "gen2",
-    batteryId: typeof row.batteryId === "string" ? row.batteryId : undefined,
-    batteryStatus: typeof row.batteryStatus === "string" ? row.batteryStatus : undefined,
-    logTime: typeof row.logTime === "string" ? row.logTime : undefined,
+    batteryId: asString(row.batteryId),
+    batteryStatus: asString(row.batteryStatus),
+    logTime: asString(row.logTime),
     raw: row,
   }
 }
@@ -66,8 +73,8 @@ function mapGen2LatestTableRow(row: Record<string, unknown>): UnifiedBatteryStat
 function mapGen3ReportBatteryLogRow(row: Record<string, unknown>): UnifiedBatteryStatus {
   return {
     generation: "gen3",
-    batteryId: typeof row.batteryId === "string" ? row.batteryId : undefined,
-    logTime: typeof row.logTime === "string" ? row.logTime : undefined,
+    batteryId: asString(row.batteryId),
+    logTime: asString(row.logTime),
     raw: row,
   }
 }
