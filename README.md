@@ -1,6 +1,6 @@
 # KDB Intelligent
 
-面向 Gen2/Gen3 电池后台的 TypeScript SDK 和命令行工具。支持状态查询、Excel 导出、4G/蓝牙命令控制，以及参数读取与设置；不包含 OTA/系统升级。
+面向 Gen2/Gen3 电池后台的 TypeScript SDK 和命令行工具。支持状态查询、Excel 导出、4G/蓝牙命令控制、参数读取与设置，以及第一阶段单电池 4G OTA；不包含蓝牙 OTA、批量 OTA 和系统升级。
 
 ## 安装与配置
 
@@ -41,6 +41,57 @@ npm run kdb -- export realtime -b 62413828 --hours 6 -o out/realtime.xlsx
 - 时间支持 `YYYY-MM-DD HH:mm:ss` 或标准 ISO 8601 格式。
 
 ## 其他 CLI 能力
+
+### 单电池 4G OTA（第一阶段）
+
+OTA 使用显式的查询、检查、预览、确认、结果查询流程。Gen2 和 Gen3 使用各自的后台入口；固件文件由后台管理，不由 CLI 上传。
+
+```bash
+# 查询当前版本
+npm run --silent kdb -- battery ota version -b 404573DB
+
+# 查询该代际可用固件
+npm run --silent kdb -- battery ota firmware list -b 404573DB
+
+# 查询电池当前实际固件的完整后台记录
+npm run --silent kdb -- battery ota firmware current -b 404573DB
+
+# 检查在线、版本、固件系列号和故障条件（实时数据仅作为诊断信息，Gen2 额外校验网络主固件类型）
+npm run --silent kdb -- battery ota inspect -b 404573DB --firmware-version <version>
+# 也可以按固件名称选择，名称必须唯一
+npm run --silent kdb -- battery ota inspect -b 404573DB --firmware-name "V3046正式版"
+
+# 第一次只生成预览和确认令牌，不修改固件状态、不发送 OTA
+npm run --silent kdb -- battery ota start -b 404573DB --firmware-version <version>
+npm run --silent kdb -- battery ota start -b 404573DB --firmware-name "V3046正式版"
+
+# 用户明确确认后执行
+npm run --silent kdb -- battery ota start -b 404573DB \
+  --firmware-version <version> --confirm '<confirmationToken>'
+
+# Gen3 使用发送结果的 sessionId 查询；Gen2 可带目标固件/版本查询版本结果
+npm run --silent kdb -- battery ota result -b 404573DB --session-id <sessionId>
+```
+
+固件推送状态也提供独立的预览、历史和回滚接口：
+
+```bash
+# 修改推送状态：1=停用，2=推送；第一次只预览
+npm run --silent kdb -- battery ota firmware status set \
+  -b 404573DB --firmware-version 470 --status 2
+
+# 查询本地状态变更历史
+npm run --silent kdb -- battery ota firmware status history -b 404573DB
+
+# 回滚最近一次状态变更；第一次只预览
+npm run --silent kdb -- battery ota firmware status rollback -b 404573DB
+```
+
+状态变更历史默认保存在 `out/ota-firmware-status-history.jsonl`。回滚会重新读取后台当前状态，只有状态仍与历史记录一致时才执行。
+
+`--firmware-id`、`--firmware-version` 和 `--firmware-name` 三选一。按版本号或名称选择时必须只匹配一条后台固件记录；如果存在多个候选，CLI 会在预览、状态激活和 OTA 下发前报错，并要求改用 `--firmware-id`。当前固件查询还会识别设备版本与固件名称中的版本号，并以 `METADATA_MISMATCH` 标记后台 `firmwareVersion` 字段不一致。Gen2 的 `warrantyStatus > 3` 按网站规则作为警告，最终由后台账号角色决定是否接受 OTA。
+
+`SENT` 只表示后台接受 OTA 启动请求；`ACKNOWLEDGED` 只表示收到 OTA 启动协议回执；`RUNNING` 表示已有升级过程证据；只有 OTA 记录和最终版本都确认后才返回 `SUCCEEDED`。第一阶段不开放蓝牙 OTA、批量 OTA、固件上传和直接协议帧操作。
 
 ### 面向自然语言 Agent 的统一入口
 

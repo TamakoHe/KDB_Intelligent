@@ -15,6 +15,15 @@ import {
   queryBatteryCommandResult,
   queryBatchBatteryStatus,
   queryBatteryStatusById,
+  queryOtaVersion,
+  queryCurrentOtaFirmware,
+  listOtaFirmware,
+  inspectOtaPreconditions,
+  startOtaUpgrade,
+  queryOtaResult,
+  setOtaFirmwareStatus,
+  listOtaFirmwareStatusHistory,
+  rollbackOtaFirmwareStatus,
   parseBatchTargetText,
   readBatteryParameter,
   readBatteryParameterBatch,
@@ -61,6 +70,11 @@ const ALIASES: Record<string, string> = {
   "明细": "detail",
   "原始": "raw",
   "清单": "battery-file",
+  "固件": "firmware-id",
+  "固件号": "firmware-id",
+  "固件版本": "firmware-version",
+  "固件名称": "firmware-name",
+  "固件名": "firmware-name",
 }
 
 const TOP_LEVEL_ALIASES: Record<string, string> = {
@@ -71,11 +85,13 @@ const TOP_LEVEL_ALIASES: Record<string, string> = {
   "参数": "parameter",
   "导出": "export",
   "批量": "batch",
+  "升级": "ota",
 }
 
 const SUBCOMMAND_ALIASES: Record<string, string> = {
   "状态": "status", "就绪": "ready", "模式": "mode", "控制": "command", "参数": "parameter", "导出": "export",
-  "查询": "get", "获取": "get", "读取": "get", "设置": "set", "查找": "find", "结果": "result", "发送": "send", "列表": "list",
+  "查询": "get", "获取": "get", "读取": "get", "设置": "set", "查找": "find", "结果": "result", "发送": "send", "列表": "list", "历史": "history", "回滚": "rollback", "推送状态": "status",
+  "升级": "ota", "版本": "version", "固件列表": "list", "当前固件": "current", "检查": "inspect", "开始": "start",
 }
 
 type ParsedArgs = { positionals: string[]; options: Map<string, string[]> }
@@ -104,6 +120,15 @@ function help(): string {
   kdb batch command send <命令> --battery-file <清单> [--confirm <令牌>]
   kdb batch parameter read|write <参数> [新值] --battery-file <清单> [--confirm <令牌>]
   kdb batch export realtime --battery-file <清单> --output-dir <目录> [时间选项]
+  kdb battery ota version -b <编号>
+  kdb battery ota firmware list -b <编号>
+  kdb battery ota firmware current -b <编号>
+  kdb battery ota firmware status set -b <编号> [--firmware-id <固件ID> | --firmware-version <版本> | --firmware-name <名称>] --status 1|2 [--confirm <令牌>]
+  kdb battery ota firmware status history [-b <编号>] [--limit <数量>]
+  kdb battery ota firmware status rollback -b <编号> [--operation-id <记录ID>] [--confirm <令牌>]
+  kdb battery ota inspect -b <编号> [--firmware-id <固件ID> | --firmware-version <版本> | --firmware-name <名称>]
+  kdb battery ota start -b <编号> [--firmware-id <固件ID> | --firmware-version <版本> | --firmware-name <名称>] [--confirm <令牌>]
+  kdb battery ota result -b <编号> [--session-id <会话ID>] [--firmware-id <固件ID> --target-version <版本>]
 
 实时数据导出:
   --battery-id, -b <编号>    必填；自动判断 Gen2/Gen3
@@ -134,10 +159,14 @@ function help(): string {
   --current-value <值>      异步蓝牙无法及时读回时，显式提供已确认的旧值
   --wait-ms <毫秒>          参数读取等待时间；默认取 config/kdb.toml
   --all                     读取全部参数；网站蓝牙 API 不支持批量
-  命令和参数写入第一次调用只预览，不会下发；OTA/系统升级不在支持范围内。
+  --min-data-count <数量>   OTA 兼容参数；当前仅统计实时数据，不作为阻塞条件
+  命令和参数写入第一次调用只预览，不会下发；OTA 仅支持下方第一阶段单电池 4G 流程，系统升级不支持。
   新 battery/电池 入口未指定通道时默认 4g；旧 command/parameter 命令仍要求显式 --channel。
   batch/批量仅接受重复 --battery-id 或 --battery-file 的显式目标（最多 100），仅支持 4g，不允许混合 Gen2/Gen3。
   command result/结果 可查询下发回执；协议回执不等同于设备物理效果已验证。
+  OTA 第一阶段仅支持单电池 4G；start 首次只预览，确认后才切换固件推送状态并发送 OTA 启动指令。
+  固件推送状态 set/rollback 首次只预览；history 读取本地 out/ota-firmware-status-history.jsonl 记录。
+  固件选择 --firmware-id/--firmware-version/--firmware-name 三选一；版本号或名称重复时必须改用固件 ID。
 
 示例:
   kdb export realtime -b 8F9AE708 --start "2026-07-01 00:00:00" --end "2026-07-02 00:00:00"
@@ -629,13 +658,202 @@ async function runMode(args: ParsedArgs): Promise<void> {
   process.stdout.write(`${JSON.stringify(agentOperationOutput(result), null, 2)}\n`)
 }
 
+function compactFirmware(firmware: Record<string, unknown>) {
+  return {
+    id: firmware.id,
+    name: firmware.firmwareName,
+    version: firmware.firmwareVersion,
+    fileName: firmware.firmwareFileName,
+    size: firmware.firmwareSize,
+    status: firmware.firmwareStatus,
+    pushCount: firmware.firmwarePushNum,
+    type: firmware.firmwareType,
+    serialNumber: firmware.serialNumber,
+    description: firmware.description,
+  }
+}
+
+function positiveIntegerOption(args: ParsedArgs, name: string): number | undefined {
+  const value = option(args, name)
+  if (value === undefined) return undefined
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`--${name} 必须是正整数`)
+  return parsed
+}
+
+function firmwareSelectorOptions(args: ParsedArgs): { firmwareId?: string; firmwareVersion?: string; firmwareName?: string } {
+  const firmwareId = option(args, "firmware-id")?.trim()
+  const firmwareVersion = option(args, "firmware-version")?.trim()
+  const firmwareName = option(args, "firmware-name")?.trim()
+  if ([firmwareId, firmwareVersion, firmwareName].filter(Boolean).length !== 1) {
+    throw new Error("必须且只能提供 --firmware-id、--firmware-version 或 --firmware-name 其中一个")
+  }
+  if (firmwareId) return { firmwareId }
+  if (firmwareVersion) return { firmwareVersion }
+  return { firmwareName: firmwareName! }
+}
+
+function firmwareStatusOption(args: ParsedArgs): "1" | "2" {
+  const value = requiredOption(args, "status")
+  if (value !== "1" && value !== "2") throw new Error("--status 只支持 1（停用）或 2（推送）")
+  return value
+}
+
+async function runOtaFirmwareStatus(args: ParsedArgs): Promise<void> {
+  const action = normalizedSubcommand(args.positionals[3])
+  if (action === "set") {
+    validateOptions(args, ["battery-id", "generation", "firmware-id", "firmware-version", "firmware-name", "status", "confirm", "history-file", "json"])
+    if (args.positionals.length > 4) throw new Error(`多余参数: ${args.positionals.slice(4).join(" ")}`)
+    const clients = await createClients(args)
+    const generation = parseGeneration(option(args, "generation"))
+    const firmwareSelector = firmwareSelectorOptions(args)
+    const result = await setOtaFirmwareStatus({
+      clients,
+      batteryId: requiredOption(args, "battery-id"),
+      ...firmwareSelector,
+      status: firmwareStatusOption(args),
+      ...(generation ? { generation } : {}),
+      ...(option(args, "confirm") ? { confirmationToken: option(args, "confirm")! } : {}),
+      ...(option(args, "history-file") ? { historyFile: option(args, "history-file")! } : {}),
+    })
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+    return
+  }
+  if (action === "history") {
+    validateOptions(args, ["battery-id", "generation", "limit", "history-file", "json"])
+    if (args.positionals.length > 4) throw new Error(`多余参数: ${args.positionals.slice(4).join(" ")}`)
+    const clients = await createClients(args)
+    const generation = parseGeneration(option(args, "generation"))
+    const limit = positiveIntegerOption(args, "limit")
+    const result = await listOtaFirmwareStatusHistory({
+      clients,
+      ...(option(args, "battery-id") ? { batteryId: option(args, "battery-id")! } : {}),
+      ...(generation ? { generation } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+      ...(option(args, "history-file") ? { historyFile: option(args, "history-file")! } : {}),
+    })
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+    return
+  }
+  if (action === "rollback") {
+    validateOptions(args, ["battery-id", "generation", "operation-id", "confirm", "history-file", "json"])
+    if (args.positionals.length > 4) throw new Error(`多余参数: ${args.positionals.slice(4).join(" ")}`)
+    const clients = await createClients(args)
+    const generation = parseGeneration(option(args, "generation"))
+    const result = await rollbackOtaFirmwareStatus({
+      clients,
+      batteryId: requiredOption(args, "battery-id"),
+      ...(generation ? { generation } : {}),
+      ...(option(args, "operation-id") ? { operationId: option(args, "operation-id")! } : {}),
+      ...(option(args, "confirm") ? { confirmationToken: option(args, "confirm")! } : {}),
+      ...(option(args, "history-file") ? { historyFile: option(args, "history-file")! } : {}),
+    })
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+    return
+  }
+  throw new Error("firmware status 只支持 set/设置、history/历史 或 rollback/回滚")
+}
+
+async function runOta(args: ParsedArgs): Promise<void> {
+  const subcommand = normalizedSubcommand(args.positionals[1])
+  if (subcommand === "version" || subcommand === "get") {
+    validateOptions(args, ["battery-id", "generation", "json"])
+    if (args.positionals.length > 2) throw new Error(`多余参数: ${args.positionals.slice(2).join(" ")}`)
+    const clients = await createClients(args)
+    const generation = parseGeneration(option(args, "generation"))
+    const result = await queryOtaVersion({ clients, batteryId: requiredOption(args, "battery-id"), ...(generation ? { generation } : {}) })
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+    return
+  }
+  if (subcommand === "firmware" && normalizedSubcommand(args.positionals[2]) === "status") {
+    return runOtaFirmwareStatus(args)
+  }
+  if (subcommand === "firmware" && normalizedSubcommand(args.positionals[2]) === "current") {
+    validateOptions(args, ["battery-id", "generation", "json"])
+    if (args.positionals.length > 3) throw new Error(`多余参数: ${args.positionals.slice(3).join(" ")}`)
+    const clients = await createClients(args)
+    const generation = parseGeneration(option(args, "generation"))
+    const result = await queryCurrentOtaFirmware({ clients, batteryId: requiredOption(args, "battery-id"), ...(generation ? { generation } : {}) })
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+    return
+  }
+  if (subcommand === "firmware" || subcommand === "list") {
+    const action = subcommand === "firmware" ? normalizedSubcommand(args.positionals[2]) : "list"
+    if (action !== "list") throw new Error("battery ota firmware 只支持 list/列表")
+    validateOptions(args, ["battery-id", "generation", "firmware-version", "firmware-name", "detail", "json"])
+    if (args.positionals.length > 3) throw new Error(`多余参数: ${args.positionals.slice(3).join(" ")}`)
+    const clients = await createClients(args)
+    const generation = parseGeneration(option(args, "generation"))
+    const result = await listOtaFirmware({
+      clients, batteryId: requiredOption(args, "battery-id"), ...(generation ? { generation } : {}),
+      ...(option(args, "firmware-version") ? { firmwareVersion: option(args, "firmware-version")! } : {}),
+      ...(option(args, "firmware-name") ? { firmwareName: option(args, "firmware-name")! } : {}),
+    })
+    const output = args.options.has("detail") ? result : { batteryId: result.batteryId, generation: result.generation, total: result.total, firmwares: result.firmwares.map(compactFirmware) }
+    process.stdout.write(`${JSON.stringify(output, null, 2)}\n`)
+    return
+  }
+  if (subcommand === "inspect") {
+    validateOptions(args, ["battery-id", "generation", "firmware-id", "firmware-version", "firmware-name", "preflight-minutes", "min-data-count", "detail", "json"])
+    if (args.positionals.length > 2) throw new Error(`多余参数: ${args.positionals.slice(2).join(" ")}`)
+    const clients = await createClients(args)
+    const generation = parseGeneration(option(args, "generation"))
+    const firmwareSelector = firmwareSelectorOptions(args)
+    const preflightMinutes = positiveIntegerOption(args, "preflight-minutes")
+    const minDataCount = positiveIntegerOption(args, "min-data-count")
+    const result = await inspectOtaPreconditions({
+      clients, batteryId: requiredOption(args, "battery-id"), ...firmwareSelector, ...(generation ? { generation } : {}),
+      ...(preflightMinutes !== undefined ? { preflightMinutes } : {}),
+      ...(minDataCount !== undefined ? { minDataCount } : {}),
+    })
+    const output = args.options.has("detail") ? result : { ...result.preflight, firmware: compactFirmware(result.firmware) }
+    process.stdout.write(`${JSON.stringify(output, null, 2)}\n`)
+    return
+  }
+  if (subcommand === "start") {
+    validateOptions(args, ["battery-id", "generation", "firmware-id", "firmware-version", "firmware-name", "confirm", "preflight-minutes", "min-data-count", "detail", "json"])
+    if (args.positionals.length > 2) throw new Error(`多余参数: ${args.positionals.slice(2).join(" ")}`)
+    const clients = await createClients(args)
+    const generation = parseGeneration(option(args, "generation"))
+    const firmwareSelector = firmwareSelectorOptions(args)
+    const preflightMinutes = positiveIntegerOption(args, "preflight-minutes")
+    const minDataCount = positiveIntegerOption(args, "min-data-count")
+    const result = await startOtaUpgrade({
+      clients, batteryId: requiredOption(args, "battery-id"), ...firmwareSelector, ...(generation ? { generation } : {}),
+      ...(option(args, "confirm") ? { confirmationToken: option(args, "confirm")! } : {}),
+      ...(preflightMinutes !== undefined ? { preflightMinutes } : {}),
+      ...(minDataCount !== undefined ? { minDataCount } : {}),
+    })
+    const output = result.phase === "PREVIEW" && !args.options.has("detail") ? { ...result, targetFirmware: compactFirmware(result.targetFirmware) } : result
+    process.stdout.write(`${JSON.stringify(output, null, 2)}\n`)
+    return
+  }
+  if (subcommand === "result") {
+    validateOptions(args, ["battery-id", "generation", "session-id", "firmware-id", "target-version", "json"])
+    if (args.positionals.length > 2) throw new Error(`多余参数: ${args.positionals.slice(2).join(" ")}`)
+    const clients = await createClients(args)
+    const generation = parseGeneration(option(args, "generation"))
+    const sessionIdText = option(args, "session-id")
+    const sessionId = sessionIdText === undefined ? undefined : Number(sessionIdText)
+    if (sessionIdText !== undefined && (!Number.isInteger(sessionId) || sessionId! <= 0)) throw new Error("--session-id 必须是正整数")
+    const result = await queryOtaResult({
+      clients, batteryId: requiredOption(args, "battery-id"), ...(generation ? { generation } : {}), ...(sessionId !== undefined ? { sessionId } : {}),
+      ...(option(args, "firmware-id") ? { firmwareId: option(args, "firmware-id")! } : {}), ...(option(args, "target-version") ? { targetVersion: option(args, "target-version")! } : {}),
+    })
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+    return
+  }
+  throw new Error("battery ota 只支持 version、firmware list/status、inspect、start 或 result")
+}
+
 async function runBattery(args: ParsedArgs): Promise<void> {
   const area = normalizedSubcommand(args.positionals[1])
-  if (!area) throw new Error("battery 需要子命令：status、ready、mode、command、parameter 或 export")
+  if (!area) throw new Error("battery 需要子命令：status、ready、mode、command、parameter、export 或 ota")
   const nested = { ...args, positionals: [area, ...args.positionals.slice(2)] }
   if (area === "status") return runStatus(nested, true)
   if (area === "ready") return runCommandReady(withJsonOutput(nested))
   if (area === "mode") return runMode(normalizedSubcommand(nested.positionals[1]) === "set" ? withDefaultFourG(nested) : nested)
+  if (area === "ota") return runOta(nested)
   if (area === "command") {
     const verb = normalizedSubcommand(nested.positionals[1])
     const commandArgs = verb === "list" || verb === "send" || verb === "result"
@@ -656,7 +874,7 @@ async function runBattery(args: ParsedArgs): Promise<void> {
     if (type === "realtime") return runRealtime(nested)
     return runGenericExport(nested, type)
   }
-  throw new Error("battery 只支持 status、ready、mode、command、parameter 或 export")
+  throw new Error("battery 只支持 status、ready、mode、command、parameter、export 或 ota")
 }
 
 async function runBatch(args: ParsedArgs): Promise<void> {
@@ -767,6 +985,10 @@ async function main(): Promise<void> {
   }
   if (command === "batch") {
     await runBatch(args)
+    return
+  }
+  if (command === "ota") {
+    await runOta({ ...args, positionals: ["ota", ...args.positionals.slice(1)] })
     return
   }
   throw new Error(`未知命令: ${command}；使用 kdb --help 查看帮助`)

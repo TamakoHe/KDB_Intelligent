@@ -24,3 +24,9 @@ format = "xlsx"
 [defaults.parameter]
 wait_ms = 3000
 read_before_write = true
+[defaults.ota]
+preflight_minutes = 3
+# 兼容旧配置；当前 OTA 不再按实时数据条数阻塞
+min_data_count = 5
+poll_interval_ms = 30000
+timeout_ms = 2400000

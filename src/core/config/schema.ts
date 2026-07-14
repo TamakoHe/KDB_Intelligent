@@ -36,6 +36,12 @@ export const publicConfigSchema = z.object({
     parameter: z.object({
       wait_ms: z.number(),
       read_before_write: z.boolean()
+    }),
+    ota: z.object({
+      preflight_minutes: z.number(),
+      min_data_count: z.number(),
+      poll_interval_ms: z.number(),
+      timeout_ms: z.number()
     })
   })
 });

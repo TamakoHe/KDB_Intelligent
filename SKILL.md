@@ -1,6 +1,6 @@
 ---
 name: kdb-battery-cli
-description: Route natural-language Gen2/Gen3 battery queries, exports, non-OTA controls, and parameter operations to the KDB CLI. Use for battery status, readiness, working mode, commands, parameters, command receipts, and explicit-target batch operations.
+description: Route natural-language Gen2/Gen3 battery queries, exports, non-OTA controls, parameters, and single-battery 4G OTA workflows to the KDB CLI. Use for status, readiness, modes, commands, command receipts, firmware inspection, OTA preview/start/result, and explicit-target batch operations.
 ---
 
 # KDB Battery CLI
@@ -11,7 +11,7 @@ Run from this repository root:
 npm run --silent kdb -- <arguments>
 ```
 
-Require a battery ID for every single-battery operation. Use the `battery` command family (Chinese alias `电池`) for new natural-language routes. It defaults to `4g`; old `status`, `ready`, `command`, `parameter`, and `export` commands remain compatible. Never expose tokens, backend protocol frames, or API details. OTA, firmware upgrade, and system upgrade are never called.
+Require a battery ID for every single-battery operation. Use the `battery` command family (Chinese alias `电池`) for new natural-language routes. It defaults to `4g`; old `status`, `ready`, `command`, `parameter`, and `export` commands remain compatible. Never expose tokens, backend protocol frames, or API details. System upgrade, firmware upload, and unsupported OTA transports are never called.
 
 ## Intent routing
 
@@ -30,10 +30,46 @@ Require a battery ID for every single-battery operation. Use the `battery` comma
 | Batch 4G command | `batch command send <command> --battery-file <txt-or-csv>` | Preview every target; explicit confirmation is required. |
 | Batch 4G parameter read/write | `batch parameter read <parameter> --battery-file <file>` / `batch parameter write <parameter> <value> --battery-file <file>` | Write preview binds target IDs, definitions, old values, and new value. |
 | Batch realtime exports | `batch export realtime --battery-file <file> --output-dir <dir>` | Creates one `<batteryId>-realtime.xlsx` per explicit target. |
+| Current firmware version | `battery ota version -b <id>` | Returns Gen2 `battery_version` or Gen3 `app_version`. |
+| OTA firmware candidates | `battery ota firmware list -b <id>` | Lists backend-managed firmware metadata; CLI never uploads firmware files. |
+| Current firmware details | `battery ota firmware current -b <id>` | Matches the battery's reported version and series number to the full backend firmware record; distinguish `MATCHED`, `METADATA_MISMATCH`, `AMBIGUOUS`, and `NOT_FOUND`. `METADATA_MISMATCH` means the device version was found in a firmware name but differs from the backend `firmwareVersion` field. |
+| Set firmware push status | `battery ota firmware status set -b <id> [--firmware-id <id>\|--firmware-version <version>\|--firmware-name <name>] --status 1\|2` | Preview first; `1` disables and `2` marks the push candidate. Requires explicit confirmation. |
+| Firmware status history | `battery ota firmware status history [-b <id>]` | Reads persisted local status-change records. |
+| Roll back firmware status | `battery ota firmware status rollback -b <id> [--operation-id <id>]` | Preview first; restores the selected operation's previous statuses only if current backend statuses still match. |
+| OTA preflight | `battery ota inspect -b <id> --firmware-id <id>`, `--firmware-version <version>` or `--firmware-name <name>` | Checks version, series, Gen2 network-firmware type, 4G readiness, fault and Gen2 warranty rules; recent data is reported for diagnostics and is not a blocking condition. Exactly one selector is required; duplicate versions/names fail before any execution. |
+| Start OTA | `battery ota start -b <id> --firmware-id <id>`, `--firmware-version <version>` or `--firmware-name <name>` | First call is `PREVIEW`; only explicit `--confirm` activates firmware selection and sends the generation-specific 4G OTA trigger. Exactly one selector is required; duplicate versions/names fail before any execution. |
+| OTA result | `battery ota result -b <id> --session-id <id>` | Combines protocol result, OTA log (Gen3), and final version; only confirmed evidence is `SUCCEEDED`. |
 
 Chinese business aliases are native: `关机`, `重启`, `强启`, `清除故障`, `加热`, `锁电模式`, `应急模式`, `正常模式`, `测试模式`. Use `battery mode set 锁电模式` / `应急模式` for modes. The catalog is authoritative for each generation/channel; do not invent a command name.
 
 For Gen2, `battery mode set 锁电模式` maps to lock and `正常模式` maps to unlock; Gen2 does not expose direct test/emergency mode settings, so report that limitation instead of guessing with a toggle command.
+
+## Single-battery 4G OTA
+
+OTA is a separate, explicit workflow and is not a normal command alias:
+
+```bash
+npm run --silent kdb -- battery ota version -b <id>
+npm run --silent kdb -- battery ota firmware list -b <id>
+npm run --silent kdb -- battery ota inspect -b <id> --firmware-id <firmware-id>
+npm run --silent kdb -- battery ota inspect -b <id> --firmware-version <version>
+npm run --silent kdb -- battery ota inspect -b <id> --firmware-name "<固件名称>"
+npm run --silent kdb -- battery ota start -b <id> --firmware-version <version>
+npm run --silent kdb -- battery ota start -b <id> --firmware-name "<固件名称>"
+npm run --silent kdb -- battery ota start -b <id> --firmware-version <version> --confirm '<confirmationToken>'
+npm run --silent kdb -- battery ota result -b <id> --session-id <sessionId>
+npm run --silent kdb -- battery ota result -b <gen2-id> --firmware-id <firmware-id> --target-version <version>
+```
+
+The first `start` call is a no-side-effect preview. Confirmation binds the battery, generation, current version, target firmware, series number and preflight snapshot. Confirmation rechecks the target before changing firmware push status or sending the OTA trigger. Gen2 uses the verified `sendbms` `msgType=4` path; Gen3 uses `sendCommand` with OTA enter `msgType=60`, `msgSubType=00`. Gen2 `warrantyStatus > 3` is a warning, not a local block; the website decides based on the backend account role (roleId 7 is restricted).
+
+`--firmware-id`, `--firmware-version` and `--firmware-name` are mutually exclusive. Version/name selection is exact and must resolve to one backend firmware record. If multiple records share a version or name, the CLI stops before preview, status activation or OTA sending; use the ID returned by `firmware list`.
+
+Firmware status changes are persisted to `out/ota-firmware-status-history.jsonl`. `rollback` defaults to the latest applied non-rollback operation for the specified battery; use `--operation-id` to select another record. It never overwrites a newer unrecorded backend change.
+
+Interpret OTA status carefully: `SENT` means the backend accepted the trigger, `ACKNOWLEDGED` means only the OTA-enter protocol reply was found, `RUNNING` means an upgrade process is recorded, `SUCCEEDED` requires final version evidence (and the Gen3 OTA record where available), `PENDING` means no completion evidence yet, and `TIMEOUT` means the wait window expired. Never describe `SENT` or `ACKNOWLEDGED` as physical upgrade success.
+
+The first phase supports only one battery and 4G. Do not call Bluetooth OTA, batch OTA, firmware upload, direct database SQL, or raw OTA protocol frames.
 
 ## Control and write safety
 

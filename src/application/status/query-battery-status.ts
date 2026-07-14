@@ -11,7 +11,10 @@ export type Generation = "gen2" | "gen3"
 export type UnifiedBatteryStatus = {
   generation: Generation
   batteryId?: string | undefined
+  serialNumber?: string | undefined
   batteryStatus?: string | undefined
+  firmwareVersion?: string | undefined
+  warrantyStatus?: string | undefined
   faultStatus?: string | undefined
   chargeDischargeStatus?: string | undefined
   networkStatus?: string | undefined
@@ -47,7 +50,10 @@ function mapGen2BatteryBaseRow(row: Record<string, unknown>): UnifiedBatteryStat
   return {
     generation: "gen2",
     batteryId: asString(row.batteryId),
+    serialNumber: asString(row.serialNumber),
     batteryStatus: asString(row.batteryStatus),
+    firmwareVersion: asString(row.batteryVersion),
+    warrantyStatus: asString(row.warrantyStatus),
     networkStatus: asString(row.lte4gStatus),
     networkTime: asString(row.lte4gTime),
     bluetoothStatus: asString(row.bluetoothStatus),
@@ -60,7 +66,10 @@ function mapGen3BatteryBaseRow(row: Record<string, unknown>): UnifiedBatteryStat
   return {
     generation: "gen3",
     batteryId: asString(row.batteryId),
+    serialNumber: asString(row.serialNumber),
     batteryStatus: asString(row.batteryStatus),
+    firmwareVersion: asString(row.appVersion),
+    warrantyStatus: asString(row.warrantyStatus),
     faultStatus: asString(row.faultStatus),
     chargeDischargeStatus: asString(row.chargeDischargeStatus),
     networkStatus: asString(row.lte4gStatus),

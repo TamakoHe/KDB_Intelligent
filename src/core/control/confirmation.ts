@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import type { RuntimeConfig } from "../config/index.js"
 
 export type ConfirmationAction = {
-  kind: "command" | "parameter-write"
+  kind: "command" | "parameter-write" | "ota"
   generation: "gen2" | "gen3"
   channel: "4g" | "bluetooth"
   batteryId: string
@@ -53,7 +53,9 @@ export function verifyConfirmationToken(
   const required =
     action.kind === "command"
       ? config.confirm.require_for_command
-      : config.confirm.require_for_parameter_write
+    : action.kind === "parameter-write"
+      ? config.confirm.require_for_parameter_write
+      : config.confirm.require_for_ota
   if (!required) return
   if (!token) throw new Error("该操作需要 --confirm <预览返回的 confirmationToken>")
   const separator = token.indexOf(".")

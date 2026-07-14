@@ -32,6 +32,14 @@ export const sendGen3Command = (client: KdbSiteClient, channel: "4g" | "bluetoot
 export const getGen3CommandResult = (client: KdbSiteClient, body: Record<string, unknown>) =>
   client.request<AjaxResult>({ path: "/managekdb/c/command/getCommand", method: "POST", body, retryCount: 1 })
 
+export const sendGen3OtaEnter = (client: KdbSiteClient, body: { batteryId: string; sessionId: number }) =>
+  client.request<AjaxResult>({
+    path: "/managekdb/c/command/sendCommand",
+    method: "POST",
+    body: { batteryId: body.batteryId, sessionId: body.sessionId, msgType: "60", msgSubType: "00", useMsg: "OTA升级" },
+    retryCount: 0,
+  })
+
 export const readGen3Parameter = (client: KdbSiteClient, body: Record<string, unknown>) =>
   client.request<AjaxResult>({ path: "/managekdb/c/kdbParameterBase/readParameter", method: "POST", body })
 
