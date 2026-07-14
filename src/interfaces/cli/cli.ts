@@ -56,7 +56,7 @@ const GEN2_ONLY = new Set<ExportType>([
   "realtimeMsgLog",
 ])
 const GEN3_ONLY = new Set<ExportType>(["reportBatteryLog", "cycle01MsgLog", "statusCommandLog"])
-const BOOLEAN_OPTIONS = new Set(["help", "version", "json", "all", "detail", "raw"])
+const BOOLEAN_OPTIONS = new Set(["help", "version", "json", "all", "detail", "raw", "allow-downgrade"])
 const ALIASES: Record<string, string> = {
   b: "battery-id",
   g: "generation",
@@ -75,6 +75,7 @@ const ALIASES: Record<string, string> = {
   "固件版本": "firmware-version",
   "固件名称": "firmware-name",
   "固件名": "firmware-name",
+  "允许降级": "allow-downgrade",
 }
 
 const TOP_LEVEL_ALIASES: Record<string, string> = {
@@ -126,8 +127,8 @@ function help(): string {
   kdb battery ota firmware status set -b <编号> [--firmware-id <固件ID> | --firmware-version <版本> | --firmware-name <名称>] --status 1|2 [--confirm <令牌>]
   kdb battery ota firmware status history [-b <编号>] [--limit <数量>]
   kdb battery ota firmware status rollback -b <编号> [--operation-id <记录ID>] [--confirm <令牌>]
-  kdb battery ota inspect -b <编号> [--firmware-id <固件ID> | --firmware-version <版本> | --firmware-name <名称>]
-  kdb battery ota start -b <编号> [--firmware-id <固件ID> | --firmware-version <版本> | --firmware-name <名称>] [--confirm <令牌>]
+  kdb battery ota inspect -b <编号> [--firmware-id <固件ID> | --firmware-version <版本> | --firmware-name <名称>] [--allow-downgrade]
+  kdb battery ota start -b <编号> [--firmware-id <固件ID> | --firmware-version <版本> | --firmware-name <名称>] [--allow-downgrade] [--confirm <令牌>]
   kdb battery ota result -b <编号> [--session-id <会话ID>] [--firmware-id <固件ID> --target-version <版本>]
 
 实时数据导出:
@@ -794,7 +795,7 @@ async function runOta(args: ParsedArgs): Promise<void> {
     return
   }
   if (subcommand === "inspect") {
-    validateOptions(args, ["battery-id", "generation", "firmware-id", "firmware-version", "firmware-name", "preflight-minutes", "min-data-count", "detail", "json"])
+    validateOptions(args, ["battery-id", "generation", "firmware-id", "firmware-version", "firmware-name", "allow-downgrade", "preflight-minutes", "min-data-count", "detail", "json"])
     if (args.positionals.length > 2) throw new Error(`多余参数: ${args.positionals.slice(2).join(" ")}`)
     const clients = await createClients(args)
     const generation = parseGeneration(option(args, "generation"))
@@ -805,13 +806,14 @@ async function runOta(args: ParsedArgs): Promise<void> {
       clients, batteryId: requiredOption(args, "battery-id"), ...firmwareSelector, ...(generation ? { generation } : {}),
       ...(preflightMinutes !== undefined ? { preflightMinutes } : {}),
       ...(minDataCount !== undefined ? { minDataCount } : {}),
+      ...(args.options.has("allow-downgrade") ? { allowDowngrade: true } : {}),
     })
     const output = args.options.has("detail") ? result : { ...result.preflight, firmware: compactFirmware(result.firmware) }
     process.stdout.write(`${JSON.stringify(output, null, 2)}\n`)
     return
   }
   if (subcommand === "start") {
-    validateOptions(args, ["battery-id", "generation", "firmware-id", "firmware-version", "firmware-name", "confirm", "preflight-minutes", "min-data-count", "detail", "json"])
+    validateOptions(args, ["battery-id", "generation", "firmware-id", "firmware-version", "firmware-name", "allow-downgrade", "confirm", "preflight-minutes", "min-data-count", "detail", "json"])
     if (args.positionals.length > 2) throw new Error(`多余参数: ${args.positionals.slice(2).join(" ")}`)
     const clients = await createClients(args)
     const generation = parseGeneration(option(args, "generation"))
@@ -823,6 +825,7 @@ async function runOta(args: ParsedArgs): Promise<void> {
       ...(option(args, "confirm") ? { confirmationToken: option(args, "confirm")! } : {}),
       ...(preflightMinutes !== undefined ? { preflightMinutes } : {}),
       ...(minDataCount !== undefined ? { minDataCount } : {}),
+      ...(args.options.has("allow-downgrade") ? { allowDowngrade: true } : {}),
     })
     const output = result.phase === "PREVIEW" && !args.options.has("detail") ? { ...result, targetFirmware: compactFirmware(result.targetFirmware) } : result
     process.stdout.write(`${JSON.stringify(output, null, 2)}\n`)

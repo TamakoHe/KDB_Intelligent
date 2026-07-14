@@ -35,6 +35,10 @@ export function isTargetVersionNewer(current: string | null, target: string | nu
   return false
 }
 
+export function isTargetVersionLower(current: string | null, target: string | null): boolean {
+  return isTargetVersionNewer(target, current) && !isTargetVersionNewer(current, target)
+}
+
 async function recentDataCount(args: { clients: KdbApiClients; batteryId: string; generation: "gen2" | "gen3"; minutes: number }) {
   const range = resolveTimeRange({ hours: args.minutes / 60 })
   const result = await queryStatus({
@@ -57,6 +61,7 @@ export async function inspectOtaPreconditions(args: {
   generation?: "gen2" | "gen3"
   preflightMinutes?: number
   minDataCount?: number
+  allowDowngrade?: boolean
 }): Promise<{ target: ReturnType<typeof normalizeOtaTarget>; firmware: FirmwareDefinition; preflight: OtaPreflightResult; status: Awaited<ReturnType<typeof queryBatteryStatusById>> }> {
   const target = normalizeOtaTarget(args.clients, args.batteryId, args.generation)
   const [firmwareInfo, status, readiness] = await Promise.all([
@@ -84,7 +89,12 @@ export async function inspectOtaPreconditions(args: {
 
   if (!status.found) blockedReasons.push("基础表中不存在该电池")
   if (!readiness.canSendCommand) blockedReasons.push(`当前 4G 不可下发：${readiness.reason}`)
-  if (!isTargetVersionNewer(currentVersion, targetVersion)) blockedReasons.push("目标固件版本不高于当前版本")
+  const targetIsNewer = isTargetVersionNewer(currentVersion, targetVersion)
+  const targetIsLower = isTargetVersionLower(currentVersion, targetVersion)
+  if (!targetIsNewer && !(args.allowDowngrade && targetIsLower)) {
+    blockedReasons.push(args.allowDowngrade ? "目标固件版本等于当前版本；--allow-downgrade 只允许更低版本" : "目标固件版本不高于当前版本")
+  }
+  if (args.allowDowngrade && targetIsLower) warnings.push("已启用降级：确认后将向设备发送低于当前版本的固件")
   if (!firmwareSerialNumber || !batterySerialNumber || firmwareSerialNumber !== batterySerialNumber) blockedReasons.push("固件产品系列号与电池不匹配")
   // Gen2 的后台字典明确规定 1=网络主固件、2=蓝牙固件。
   // Gen3 的已验证 OTA 流程按系列号/激活状态选择固件，网站字典中 firmwareType 的标签与 Gen2 不同，
@@ -111,6 +121,7 @@ export async function inspectOtaPreconditions(args: {
       generation: target.generation,
       currentVersion,
       targetVersion,
+      allowDowngrade: Boolean(args.allowDowngrade),
       firmwareId: firmware.id ?? args.firmwareVersion ?? args.firmwareId ?? "",
       firmwareName: text(firmware.firmwareName),
       firmwareStatus,

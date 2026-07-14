@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { createConfirmationToken, verifyConfirmationToken } from "../src/core/control/confirmation.js"
-import { isTargetVersionNewer } from "../src/application/ota/inspect-ota-preconditions.js"
+import { isTargetVersionLower, isTargetVersionNewer } from "../src/application/ota/inspect-ota-preconditions.js"
 import { sendGen2OtaCommand } from "../src/domain/gen2/ota/hckd-firmware-api.js"
 import { sendGen3OtaEnter } from "../src/domain/gen3/control/kdb-control-api.js"
 import { resolveOtaFirmware } from "../src/application/ota/list-ota-firmware.js"
@@ -25,6 +25,9 @@ test("OTA 版本比较支持数字版本和 V 前缀", () => {
   assert.equal(isTargetVersionNewer("420", "420"), false)
   assert.equal(isTargetVersionNewer("421", "420"), false)
   assert.equal(isTargetVersionNewer(null, "420"), true)
+  assert.equal(isTargetVersionLower("421", "420"), true)
+  assert.equal(isTargetVersionLower("420", "421"), false)
+  assert.equal(isTargetVersionLower("420", "420"), false)
 })
 
 test("OTA 确认令牌绑定固件、版本和前置检查快照", () => {
@@ -39,6 +42,7 @@ test("OTA 确认令牌绑定固件、版本和前置检查快照", () => {
       firmwareVersion: "421",
       firmwareSerialNumber: "3",
       currentVersion: "420",
+      allowDowngrade: false,
       preflight: { canStart: true, recentDataCount: 8, latestReportTime: "2026-07-14 10:00:00" },
     },
   }
@@ -46,6 +50,7 @@ test("OTA 确认令牌绑定固件、版本和前置检查快照", () => {
   assert.doesNotThrow(() => verifyConfirmationToken(action, token, config))
   assert.throws(() => verifyConfirmationToken({ ...action, payload: { ...action.payload, firmwareId: 133 } }, token, config), /不匹配/)
   assert.throws(() => verifyConfirmationToken({ ...action, payload: { ...action.payload, currentVersion: "421" } }, token, config), /不匹配/)
+  assert.throws(() => verifyConfirmationToken({ ...action, payload: { ...action.payload, allowDowngrade: true } }, token, config), /不匹配/)
 })
 
 test("OTA 只使用已验证的两代 4G 启动入口", async () => {

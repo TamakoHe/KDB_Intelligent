@@ -62,6 +62,7 @@ export type OtaPreflightResult = {
   generation: OtaGeneration
   currentVersion: string | null
   targetVersion: string | null
+  allowDowngrade: boolean
   firmwareId: string | number
   firmwareName: string | null
   firmwareStatus: string | null

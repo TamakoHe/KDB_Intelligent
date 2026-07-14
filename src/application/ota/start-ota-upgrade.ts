@@ -44,7 +44,7 @@ async function activateFirmware(args: {
   return { previous, changes, activeFirmwareIds: sameSeries.filter((item) => String(item.id) !== String(args.firmware.id) && String(item.firmwareStatus) === "2").map((item) => item.id) }
 }
 
-function actionFor(args: { batteryId: string; generation: "gen2" | "gen3"; firmware: FirmwareDefinition; currentVersion: string | null; preflight: unknown }): ConfirmationAction {
+function actionFor(args: { batteryId: string; generation: "gen2" | "gen3"; firmware: FirmwareDefinition; currentVersion: string | null; allowDowngrade: boolean; preflight: unknown }): ConfirmationAction {
   return {
     kind: "ota",
     generation: args.generation,
@@ -66,6 +66,7 @@ function actionFor(args: { batteryId: string; generation: "gen2" | "gen3"; firmw
       firmwareVersion: args.firmware.firmwareVersion,
       firmwareSerialNumber: args.firmware.serialNumber,
       currentVersion: args.currentVersion,
+      allowDowngrade: args.allowDowngrade,
       preflight: args.preflight,
     },
   }
@@ -81,6 +82,7 @@ export async function startOtaUpgrade(args: {
   confirmationToken?: string
   preflightMinutes?: number
   minDataCount?: number
+  allowDowngrade?: boolean
 }): Promise<OtaPreviewResult | OtaStartResult> {
   const checked = await inspectOtaPreconditions(args)
   const action = actionFor({
@@ -88,6 +90,7 @@ export async function startOtaUpgrade(args: {
     generation: checked.target.generation,
     firmware: checked.firmware,
     currentVersion: checked.preflight.currentVersion,
+    allowDowngrade: Boolean(args.allowDowngrade),
     preflight: checked.preflight,
   })
   if (!checked.preflight.canStart) {

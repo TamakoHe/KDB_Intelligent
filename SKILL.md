@@ -36,8 +36,8 @@ Require a battery ID for every single-battery operation. Use the `battery` comma
 | Set firmware push status | `battery ota firmware status set -b <id> [--firmware-id <id>\|--firmware-version <version>\|--firmware-name <name>] --status 1\|2` | Preview first; `1` disables and `2` marks the push candidate. Requires explicit confirmation. |
 | Firmware status history | `battery ota firmware status history [-b <id>]` | Reads persisted local status-change records. |
 | Roll back firmware status | `battery ota firmware status rollback -b <id> [--operation-id <id>]` | Preview first; restores the selected operation's previous statuses only if current backend statuses still match. |
-| OTA preflight | `battery ota inspect -b <id> --firmware-id <id>`, `--firmware-version <version>` or `--firmware-name <name>` | Checks version, series, Gen2 network-firmware type, 4G readiness, fault and Gen2 warranty rules; recent data is reported for diagnostics and is not a blocking condition. Exactly one selector is required; duplicate versions/names fail before any execution. |
-| Start OTA | `battery ota start -b <id> --firmware-id <id>`, `--firmware-version <version>` or `--firmware-name <name>` | First call is `PREVIEW`; only explicit `--confirm` activates firmware selection and sends the generation-specific 4G OTA trigger. Exactly one selector is required; duplicate versions/names fail before any execution. |
+| OTA preflight | `battery ota inspect -b <id> --firmware-id <id>`, `--firmware-version <version>` or `--firmware-name <name>` | Checks version, series, Gen2 network-firmware type, 4G readiness, fault and Gen2 warranty rules; recent data is reported for diagnostics and is not a blocking condition. Exactly one selector is required; duplicate versions/names fail before any execution. Add `--allow-downgrade` only when the target version is intentionally lower. |
+| Start OTA | `battery ota start -b <id> --firmware-id <id>`, `--firmware-version <version>` or `--firmware-name <name>` | First call is `PREVIEW`; only explicit `--confirm` activates firmware selection and sends the generation-specific 4G OTA trigger. Exactly one selector is required; duplicate versions/names fail before any execution. Lower versions require `--allow-downgrade`, which is bound to the confirmation token. |
 | OTA result | `battery ota result -b <id> --session-id <id>` | Combines protocol result, OTA log (Gen3), and final version; only confirmed evidence is `SUCCEEDED`. |
 
 Chinese business aliases are native: `关机`, `重启`, `强启`, `清除故障`, `加热`, `锁电模式`, `应急模式`, `正常模式`, `测试模式`. Use `battery mode set 锁电模式` / `应急模式` for modes. The catalog is authoritative for each generation/channel; do not invent a command name.
@@ -56,6 +56,7 @@ npm run --silent kdb -- battery ota inspect -b <id> --firmware-version <version>
 npm run --silent kdb -- battery ota inspect -b <id> --firmware-name "<固件名称>"
 npm run --silent kdb -- battery ota start -b <id> --firmware-version <version>
 npm run --silent kdb -- battery ota start -b <id> --firmware-name "<固件名称>"
+npm run --silent kdb -- battery ota start -b <id> --firmware-name "<低版本固件名称>" --allow-downgrade
 npm run --silent kdb -- battery ota start -b <id> --firmware-version <version> --confirm '<confirmationToken>'
 npm run --silent kdb -- battery ota result -b <id> --session-id <sessionId>
 npm run --silent kdb -- battery ota result -b <gen2-id> --firmware-id <firmware-id> --target-version <version>
@@ -63,7 +64,7 @@ npm run --silent kdb -- battery ota result -b <gen2-id> --firmware-id <firmware-
 
 The first `start` call is a no-side-effect preview. Confirmation binds the battery, generation, current version, target firmware, series number and preflight snapshot. Confirmation rechecks the target before changing firmware push status or sending the OTA trigger. Gen2 uses the verified `sendbms` `msgType=4` path; Gen3 uses `sendCommand` with OTA enter `msgType=60`, `msgSubType=00`. Gen2 `warrantyStatus > 3` is a warning, not a local block; the website decides based on the backend account role (roleId 7 is restricted).
 
-`--firmware-id`, `--firmware-version` and `--firmware-name` are mutually exclusive. Version/name selection is exact and must resolve to one backend firmware record. If multiple records share a version or name, the CLI stops before preview, status activation or OTA sending; use the ID returned by `firmware list`.
+`--firmware-id`, `--firmware-version` and `--firmware-name` are mutually exclusive. Version/name selection is exact and must resolve to one backend firmware record. If multiple records share a version or name, the CLI stops before preview, status activation or OTA sending; use the ID returned by `firmware list`. Downgrades are rejected by default; `--allow-downgrade` explicitly permits a strictly lower target version and is included in the confirmation-token snapshot.
 
 Firmware status changes are persisted to `out/ota-firmware-status-history.jsonl`. `rollback` defaults to the latest applied non-rollback operation for the specified battery; use `--operation-id` to select another record. It never overwrites a newer unrecorded backend change.
 

@@ -64,6 +64,9 @@ npm run --silent kdb -- battery ota inspect -b 404573DB --firmware-name "V3046�
 # 第一次只生成预览和确认令牌，不修改固件状态、不发送 OTA
 npm run --silent kdb -- battery ota start -b 404573DB --firmware-version <version>
 npm run --silent kdb -- battery ota start -b 404573DB --firmware-name "V3046正式版"
+# 降级必须显式开启
+npm run --silent kdb -- battery ota start -b 404573DB \
+  --firmware-name "<低版本固件名称>" --allow-downgrade
 
 # 用户明确确认后执行
 npm run --silent kdb -- battery ota start -b 404573DB \
@@ -89,7 +92,7 @@ npm run --silent kdb -- battery ota firmware status rollback -b 404573DB
 
 状态变更历史默认保存在 `out/ota-firmware-status-history.jsonl`。回滚会重新读取后台当前状态，只有状态仍与历史记录一致时才执行。
 
-`--firmware-id`、`--firmware-version` 和 `--firmware-name` 三选一。按版本号或名称选择时必须只匹配一条后台固件记录；如果存在多个候选，CLI 会在预览、状态激活和 OTA 下发前报错，并要求改用 `--firmware-id`。当前固件查询还会识别设备版本与固件名称中的版本号，并以 `METADATA_MISMATCH` 标记后台 `firmwareVersion` 字段不一致。Gen2 的 `warrantyStatus > 3` 按网站规则作为警告，最终由后台账号角色决定是否接受 OTA。
+`--firmware-id`、`--firmware-version` 和 `--firmware-name` 三选一。按版本号或名称选择时必须只匹配一条后台固件记录；如果存在多个候选，CLI 会在预览、状态激活和 OTA 下发前报错，并要求改用 `--firmware-id`。降级默认禁止，只有显式添加 `--allow-downgrade` 才允许严格低于当前版本的目标，并且该开关会绑定到确认令牌。当前固件查询还会识别设备版本与固件名称中的版本号，并以 `METADATA_MISMATCH` 标记后台 `firmwareVersion` 字段不一致。Gen2 的 `warrantyStatus > 3` 按网站规则作为警告，最终由后台账号角色决定是否接受 OTA。
 
 `SENT` 只表示后台接受 OTA 启动请求；`ACKNOWLEDGED` 只表示收到 OTA 启动协议回执；`RUNNING` 表示已有升级过程证据；只有 OTA 记录和最终版本都确认后才返回 `SUCCEEDED`。第一阶段不开放蓝牙 OTA、批量 OTA、固件上传和直接协议帧操作。
 

@@ -18,7 +18,7 @@ export { MAX_BATCH_SIZE, parseBatchTargetText, resolveBatchTargets, queryBatchBa
 export { listOtaFirmware, resolveOtaFirmware } from "./application/ota/list-ota-firmware.js"
 export { queryOtaVersion } from "./application/ota/query-ota-version.js"
 export { queryCurrentOtaFirmware } from "./application/ota/query-current-ota-firmware.js"
-export { inspectOtaPreconditions, isTargetVersionNewer } from "./application/ota/inspect-ota-preconditions.js"
+export { inspectOtaPreconditions, isTargetVersionNewer, isTargetVersionLower } from "./application/ota/inspect-ota-preconditions.js"
 export { startOtaUpgrade } from "./application/ota/start-ota-upgrade.js"
 export { queryOtaResult } from "./application/ota/query-ota-result.js"
 export { setOtaFirmwareStatus, listOtaFirmwareStatusHistory, rollbackOtaFirmwareStatus } from "./application/ota/firmware-status-history.js"
