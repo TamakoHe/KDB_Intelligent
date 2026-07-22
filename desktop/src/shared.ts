@@ -21,8 +21,14 @@ export type AppSettings = {
     baseUrl: string
     model: string
   }
-  /** Directory containing config/kdb.toml and config/kdb.local.toml. */
+  /** Managed by the desktop application; never points at an external project directory. */
   kdbConfigRoot: string
+}
+
+export type KdbConfigFiles = {
+  publicToml: string
+  localToml: string
+  configRoot: string
 }
 
 export type ChatHistoryItem = {
@@ -34,6 +40,7 @@ export type ChatHistoryItem = {
 
 export type KdbDesktopApi = {
   settings: { get(): Promise<AppSettings>; save(value: AppSettings): Promise<AppSettings> }
+  config: { get(): Promise<KdbConfigFiles>; save(value: Pick<KdbConfigFiles, "publicToml" | "localToml">): Promise<KdbConfigFiles> }
   history: { list(): Promise<ChatHistoryItem[]>; clear(): Promise<void> }
   chat: { send(text: string): Promise<ChatReply> }
   action: { confirm(actionId: string): Promise<ResultCard>; cancel(actionId: string): Promise<void> }

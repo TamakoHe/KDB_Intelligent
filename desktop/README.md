@@ -8,7 +8,7 @@ npm install
 npm run dev
 ```
 
-首次启动在设置页填写 DeepSeek API Key。安装版自带网页 API 的 `kdb.toml` 模板；若要使用本地历史库，请在设置中选择你自己的 KDB 配置根目录（其中应有 `config/kdb.toml` 与未提交的 `config/kdb.local.toml`）。桌面端在启动前会构建根目录 SDK，但不会修改根目录的依赖清单。
+首次启动在设置页填写 DeepSeek API Key。应用会把 `kdb.toml` 与 `kdb.local.toml` 模板复制到自身用户数据目录；在设置中选择“编辑应用内 KDB 配置”即可填写网页 Token 与本地历史库连接。桌面端不会读取或修改外部项目配置，也不会修改根目录 CLI 的依赖清单。
 
 构建安装包：
 

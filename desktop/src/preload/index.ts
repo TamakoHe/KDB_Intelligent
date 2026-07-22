@@ -6,6 +6,10 @@ const api: KdbDesktopApi = {
     get: () => ipcRenderer.invoke("settings:get"),
     save: (value: AppSettings) => ipcRenderer.invoke("settings:save", value),
   },
+  config: {
+    get: () => ipcRenderer.invoke("config:get"),
+    save: (value) => ipcRenderer.invoke("config:save", value),
+  },
   history: {
     list: () => ipcRenderer.invoke("history:list"),
     clear: () => ipcRenderer.invoke("history:clear"),

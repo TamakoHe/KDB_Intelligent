@@ -36,6 +36,6 @@ function normalize(value: Partial<AppSettings>, defaultKdbConfigRoot: string): A
       baseUrl: value.deepseek?.baseUrl?.trim() || DEFAULT_DEEPSEEK_URL,
       model: value.deepseek?.model?.trim() || DEFAULT_MODEL,
     },
-    kdbConfigRoot: value.kdbConfigRoot?.trim() || defaultKdbConfigRoot,
+    kdbConfigRoot: defaultKdbConfigRoot,
   }
 }

@@ -51,7 +51,8 @@
           "!undici-types{,/**/*}"
         ]
       },
-      { "from": "../config/kdb.toml", "to": "kdb-core/config/kdb.toml" }
+      { "from": "../config/kdb.toml", "to": "kdb-core/config/kdb.toml" },
+      { "from": "../config/kdb.local.example.toml", "to": "kdb-core/config/kdb.local.example.toml" }
     ],
     "mac": { "target": ["dmg"], "identity": null },
     "win": { "target": ["nsis"] }

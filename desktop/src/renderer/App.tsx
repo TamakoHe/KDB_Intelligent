@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react"
-import type { AppSettings, ChatHistoryItem, ResultCard } from "../shared"
+import type { AppSettings, ChatHistoryItem, KdbConfigFiles, ResultCard } from "../shared"
 
 type Message = ChatHistoryItem & { cards?: ResultCard[] }
 
@@ -9,6 +9,8 @@ export function App() {
   const [busy, setBusy] = useState(false)
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [config, setConfig] = useState<KdbConfigFiles | null>(null)
+  const [showConfig, setShowConfig] = useState(false)
   const [error, setError] = useState("")
 
   useEffect(() => {
@@ -58,6 +60,28 @@ export function App() {
     setShowSettings(false)
   }
 
+  async function openConfig() {
+    setError("")
+    try {
+      setConfig(await window.kdb.config.get())
+      setShowSettings(false)
+      setShowConfig(true)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+
+  async function saveConfig(event: FormEvent) {
+    event.preventDefault()
+    if (!config) return
+    try {
+      setConfig(await window.kdb.config.save(config))
+      setShowConfig(false)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+
   return <main className="app-shell">
     <aside className="sidebar">
       <div><p className="eyebrow">KDB INTELLIGENT</p><h1>KDB Copilot</h1><p className="muted">电池数据与操作助手</p></div>
@@ -83,7 +107,8 @@ export function App() {
         <button type="submit" disabled={busy || !input.trim()}>发送</button>
       </form>
     </section>
-    {showSettings && settings && <Settings value={settings} onChange={setSettings} onSave={saveSettings} onClose={() => setShowSettings(false)} />}
+    {showSettings && settings && <Settings value={settings} onChange={setSettings} onSave={saveSettings} onEditConfig={openConfig} onClose={() => setShowSettings(false)} />}
+    {showConfig && config && <ConfigEditor value={config} onChange={setConfig} onSave={saveConfig} onClose={() => setShowConfig(false)} />}
   </main>
 }
 
@@ -98,15 +123,24 @@ function Card({ card, busy, onConfirm }: { card: ResultCard; busy: boolean; onCo
   </section>
 }
 
-function Settings({ value, onChange, onSave, onClose }: { value: AppSettings; onChange(value: AppSettings): void; onSave(event: FormEvent): Promise<void>; onClose(): void }) {
+function Settings({ value, onChange, onSave, onEditConfig, onClose }: { value: AppSettings; onChange(value: AppSettings): void; onSave(event: FormEvent): Promise<void>; onEditConfig(): Promise<void>; onClose(): void }) {
   return <div className="modal-backdrop"><form className="settings" onSubmit={(event) => { void onSave(event) }}>
     <h2>连接设置</h2>
     <label>DeepSeek API Key<input value={value.deepseek.apiKey} type="password" onChange={(event) => onChange({ ...value, deepseek: { ...value.deepseek, apiKey: event.target.value } })} /></label>
     <label>DeepSeek Base URL<input value={value.deepseek.baseUrl} onChange={(event) => onChange({ ...value, deepseek: { ...value.deepseek, baseUrl: event.target.value } })} /></label>
     <label>模型<input value={value.deepseek.model} onChange={(event) => onChange({ ...value, deepseek: { ...value.deepseek, model: event.target.value } })} /></label>
-    <label>KDB 配置根目录<input value={value.kdbConfigRoot} onChange={(event) => onChange({ ...value, kdbConfigRoot: event.target.value })} /></label>
-    <p className="muted">该目录须包含 config/kdb.toml 与 config/kdb.local.toml。</p>
-    <div className="modal-actions"><button type="button" onClick={onClose}>取消</button><button type="submit">保存</button></div>
+    <p className="muted">KDB 配置由应用内部管理，不读取外部项目目录。</p>
+    <div className="modal-actions"><button type="button" onClick={() => { void onEditConfig() }}>编辑应用内 KDB 配置</button><button type="button" onClick={onClose}>取消</button><button type="submit">保存</button></div>
+  </form></div>
+}
+
+function ConfigEditor({ value, onChange, onSave, onClose }: { value: KdbConfigFiles; onChange(value: KdbConfigFiles): void; onSave(event: FormEvent): Promise<void>; onClose(): void }) {
+  return <div className="modal-backdrop"><form className="settings config-editor" onSubmit={(event) => { void onSave(event) }}>
+    <h2>应用内 KDB 配置</h2>
+    <p className="muted">保存位置：{value.configRoot}/config。保存后下一次查询会使用新配置。</p>
+    <label>kdb.toml<textarea value={value.publicToml} onChange={(event) => onChange({ ...value, publicToml: event.target.value })} rows={12} /></label>
+    <label>kdb.local.toml<textarea value={value.localToml} onChange={(event) => onChange({ ...value, localToml: event.target.value })} rows={14} /></label>
+    <div className="modal-actions"><button type="button" onClick={onClose}>取消</button><button type="submit">保存配置</button></div>
   </form></div>
 }
 
