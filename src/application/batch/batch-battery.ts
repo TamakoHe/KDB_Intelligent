@@ -9,6 +9,7 @@ import { executeBatteryParameterWrite, readBatteryParameter, resolveBatteryParam
 import { parameterValue, assertWritable, validateParameterValue, type ParameterDefinition } from "../../domain/parameters/parameter-types.js"
 import { queryBatteryCommandReadiness } from "../status/query-command-readiness.js"
 import { queryBatteryStatusById } from "../status/query-battery-by-id.js"
+import type { DataSource } from "../../core/data-source.js"
 
 export const MAX_BATCH_SIZE = 100
 const BATCH_CONCURRENCY = 5
@@ -168,12 +169,13 @@ export async function exportBatteryRealtimeBatch(args: {
   start?: string
   end?: string
   hours?: number
+  source?: DataSource
 }) {
   const targets = resolveBatchTargets(args.clients, args.batteryIds)
   const results = await mapConcurrent(targets, async (target) => {
     try {
       const outputPath = path.join(args.outputDir, `${target.batteryId}-realtime.xlsx`)
-      return { batteryId: target.batteryId, ok: true, result: await exportBatteryRealtimeData({ clients: args.clients, ...target, outputPath, ...(args.start !== undefined ? { start: args.start } : {}), ...(args.end !== undefined ? { end: args.end } : {}), ...(args.hours !== undefined ? { hours: args.hours } : {}) }) }
+      return { batteryId: target.batteryId, ok: true, result: await exportBatteryRealtimeData({ clients: args.clients, ...target, outputPath, ...(args.start !== undefined ? { start: args.start } : {}), ...(args.end !== undefined ? { end: args.end } : {}), ...(args.hours !== undefined ? { hours: args.hours } : {}), ...(args.source !== undefined ? { source: args.source } : {}) }) }
     } catch (error) {
       return { batteryId: target.batteryId, ok: false, error: error instanceof Error ? error.message : String(error) }
     }

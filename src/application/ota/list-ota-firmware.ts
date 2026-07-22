@@ -4,6 +4,8 @@ import { assertTableOk } from "../../core/api/table-data.js"
 import { listGen2Firmwares } from "../../domain/gen2/ota/hckd-firmware-api.js"
 import { listGen3Firmwares } from "../../domain/gen3/ota/kdb-firmware-api.js"
 import type { FirmwareDefinition } from "../../domain/ota/ota-types.js"
+import type { DataSource } from "../../core/data-source.js"
+import { createLocalHistoryRepository } from "../../domain/local/local-history-repository.js"
 
 function normalizeId(value: string): string {
   const id = value.trim().toUpperCase()
@@ -32,8 +34,13 @@ export async function listOtaFirmware(args: {
   generation?: "gen2" | "gen3"
   firmwareVersion?: string
   firmwareName?: string
-}) {
+  source?: DataSource
+}): Promise<{
+  batteryId: string; generation: "gen2" | "gen3"; total: number; firmwares: FirmwareDefinition[]
+  source: "api" | "local"; isHistorical?: true; asOf?: string | null; fallbackFrom?: "api-empty"
+}> {
   const target = normalizeOtaTarget(args.clients, args.batteryId, args.generation)
+  if (args.source === "local") return listLocalOtaFirmware({ ...args, ...target })
   const query: Record<string, unknown> = { pageNum: 1, pageSize: 1000 }
   if (args.firmwareVersion) query.firmwareVersion = args.firmwareVersion
   if (args.firmwareName) query.firmwareName = args.firmwareName
@@ -42,7 +49,19 @@ export async function listOtaFirmware(args: {
     : await listGen3Firmwares(args.clients.gen3, query)
   assertTableOk({ generation: target.generation, action: "listOtaFirmware", result: response.data })
   const rows = (response.data.rows ?? []) as FirmwareDefinition[]
-  return { ...target, total: Number(response.data.total ?? rows.length), firmwares: rows }
+  if (args.source === "auto" && rows.length === 0) {
+    const local = await listLocalOtaFirmware({ ...args, ...target })
+    return { ...local, fallbackFrom: "api-empty" as const }
+  }
+  return { ...target, total: Number(response.data.total ?? rows.length), firmwares: rows, source: "api" as const }
+}
+
+async function listLocalOtaFirmware(args: {
+  clients: KdbApiClients; batteryId: string; generation: "gen2" | "gen3"; firmwareVersion?: string; firmwareName?: string
+}) {
+  const rows = await createLocalHistoryRepository(args.clients.config).listFirmwares({ generation: args.generation, ...(args.firmwareVersion ? { firmwareVersion: args.firmwareVersion } : {}), ...(args.firmwareName ? { firmwareName: args.firmwareName } : {}) })
+  const asOf = rows.reduce<string | null>((latest, row) => String(row.updateTime ?? row.createTime ?? latest ?? "") || latest, null)
+  return { batteryId: args.batteryId, generation: args.generation, total: rows.length, firmwares: rows as FirmwareDefinition[], source: "local" as const, isHistorical: true as const, asOf }
 }
 
 export async function resolveOtaFirmware(args: {

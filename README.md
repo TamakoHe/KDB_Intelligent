@@ -14,6 +14,22 @@ npm run build
 
 在 `config/kdb.local.toml` 中分别填写 Gen2、Gen3 Bearer Token。该文件已加入 `.gitignore`，不要提交到版本库。
 
+### 可选：本地历史数据库
+
+`[database.local]` 是可选配置，仅在使用 `--source local` 或 `--source auto` 时才会创建只读 MySQL 连接池；默认 API 使用不需要安装数据库驱动、配置凭据或连接数据库。示例文件中的密码只是占位符，请只在已忽略的 `config/kdb.local.toml` 中填写真实值。
+
+```toml
+[database.local]
+host = "<本地历史库地址>"
+port = 3306
+user = "<只读用户>"
+password = "<密码>"
+database = "kadianbao"
+connection_limit = 5
+```
+
+只读 SQL 首期连接本地归档库：Gen3 基础信息使用 `kadianbao.kdb_battery_base`，实时分表按 4/6 前缀路由；Gen2 使用 `newenergy.hckd_battery_base` 与对应的按电池分表。CLI 不会对动态分表做全库扫描，所有筛选值均参数化。
+
 开发期间可以通过 `npm run kdb --` 直接运行 CLI；构建后可使用 `node dist/interfaces/cli/cli.js`。如果将本包安装到其他项目或执行 `npm link`，命令名为 `kdb`。
 
 ## 一条命令导出实时数据
@@ -39,6 +55,28 @@ npm run kdb -- export realtime -b 62413828 --hours 6 -o out/realtime.xlsx
 - `--end`：结束时间；默认当前时间。
 - `--hours`：回溯小时数，默认 24。
 - 时间支持 `YYYY-MM-DD HH:mm:ss` 或标准 ISO 8601 格式。
+
+### 数据来源：API、本地历史与自动回退
+
+历史只读路由支持 `--source api|local|auto`，省略时仍为 `api`，因此既有 SDK/CLI 调用保持不变：
+
+- `api`：网页 API 的原有行为。
+- `local`：只读本地历史数据库；未配置、不可达或分表不存在会明确报错。
+- `auto`：先请求网页 API；只有请求成功但导出 Excel 只有表头、或状态查询没有记录时，才回退本地库。认证失败、超时和服务端错误绝不回退。
+
+本地状态不是在线状态：响应会包含 `source: "local"`、`isHistorical: true` 与 `asOf`（最新归档记录时间）。`parameter list/find`、`battery ota version`、`battery ota firmware list/current` 也可读取本地定义/归档元数据。`ready`、4G/蓝牙参数读取、命令回执、所有控制/参数写入，以及 OTA 检查/开始/结果仍严格使用 API；对它们传入 `--source local` 或 `--source auto` 会失败。
+
+```bash
+# API 为空时从本地历史分表回退；两种来源的实时 Excel 都使用同一列结构
+npm run --silent kdb -- export realtime -b 623B1C10 \
+  --start "2026-05-15 13:45:52" --end "2026-05-15 15:45:52" --source auto
+
+# 明确读取本地快照（不是当前在线状态）
+npm run --silent kdb -- battery status -b 623B1C10 --source local
+npm run --silent kdb -- battery mode get -b 623B1C10 --source local
+```
+
+本地 Excel 由 CLI 写入，不暴露原始 SQL 字段；实时 Gen3 保持网页导出的 66 个中文列头。`auto` 成功回退时会报告 `source: "local"`、`rowCount` 与 `fallbackFrom: "api-empty"`。
 
 ## 其他 CLI 能力
 

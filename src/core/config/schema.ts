@@ -58,4 +58,18 @@ export const localConfigSchema = z.object({
             password_env:z.string()
         })
     }),
+    /**
+     * 本地历史库是可选数据源。此文件已被 .gitignore 忽略；不要把凭据写入公共配置。
+     * 当前按用户部署约定支持 TOML 明文，连接仅用于只读历史查询。
+     */
+    database: z.object({
+      local: z.object({
+        host: z.string().min(1),
+        port: z.number().int().positive().default(3306),
+        user: z.string().min(1),
+        password: z.string(),
+        database: z.string().min(1).default("kadianbao"),
+        connection_limit: z.number().int().positive().max(20).default(5),
+      }),
+    }).optional(),
 });

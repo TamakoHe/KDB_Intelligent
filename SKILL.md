@@ -12,6 +12,16 @@ npm run --silent kdb -- <arguments>
 
 Require a battery ID for every single-battery operation. Use the `battery` command family (Chinese alias `电池`) for new natural-language routes. It defaults to `4g`; old `status`, `ready`, `command`, `parameter`, and `export` commands remain compatible. Never expose tokens, backend protocol frames, or API details. System upgrade, firmware upload, and unsupported OTA transports are never called.
 
+## Local historical source
+
+Historical read routes accept `--source api|local|auto`; omitted means `api` and preserves the existing website behavior. `local` reads the operator-configured, read-only MySQL archive. `auto` calls the website first and falls back only when that successful response has no data (an Excel export with only headers or a missing status record). Never fall back after authentication, timeout, or server errors.
+
+Use `--source local` or `--source auto` only for `status`, `battery status`, `battery mode get`, `export realtime`, `battery export realtime`, `batch export realtime`, supported generic `export <type>` reads, parameter definition `list/find`, and OTA metadata `version`, `firmware list`, or `firmware current`. Local status/mode values are historical snapshots, never current online/readiness claims: preserve `source: "local"`, `isHistorical: true`, and `asOf` in the response.
+
+`ready`, parameter reads, command receipts, all command/parameter writes, and all OTA inspect/start/result or firmware-state mutations are API-only. If a caller supplies `--source local` or `--source auto` to one of these operations, explain that it depends on live backend state and reject it; do not silently substitute history.
+
+The local database configuration belongs only in ignored `config/kdb.local.toml` under `[database.local]`; do not expose its password. SQL is read-only and its battery-specific table identifiers must be generated only from a validated 8-digit hexadecimal battery ID and the Gen2/Gen3 table whitelist. Do not scan every per-battery history table.
+
 ## Intent routing
 
 | User intent                                                                          | Native CLI route                                                                                                                  | Output/interpretation                                                                                                                                                                                                                                                                                                                         |

@@ -7,6 +7,8 @@ import { GEN3_BATTERY_BASE_FIELD_LABELS } from "../../domain/gen3/status/kdb-bat
 import { listGen3Cycle01MsgLog } from "../../domain/gen3/logs/kdb-cycle01-msg-log-api.js"
 import { assertTableOk } from "../../core/api/table-data.js"
 import { gen3WorkingModeText } from "./query-battery-status.js"
+import type { DataSource } from "../../core/data-source.js"
+import { createLocalHistoryRepository } from "../../domain/local/local-history-repository.js"
 
 export type BatteryStatusByIdResult = {
   batteryId: string
@@ -20,6 +22,10 @@ export type BatteryStatusByIdResult = {
   latestRealtime: Record<string, unknown> | null
   base: { total: number; rows: UnifiedBatteryStatus[] }
   latest: { total: number; rows: UnifiedBatteryStatus[] }
+  source?: "api" | "local"
+  fallbackFrom?: "api-empty"
+  isHistorical?: true
+  asOf?: string | null
 }
 
 function completeDetails(
@@ -38,6 +44,7 @@ export async function queryBatteryStatusById(args: {
   clients: KdbApiClients
   batteryId: string
   generation?: "gen2" | "gen3"
+  source?: DataSource
 }): Promise<BatteryStatusByIdResult> {
   const batteryId = args.batteryId.trim().toUpperCase()
   if (!batteryId) throw new Error("batteryId 不能为空")
@@ -46,6 +53,7 @@ export async function queryBatteryStatusById(args: {
     throw new Error(`指定代际 ${args.generation} 与电池编号 ${batteryId} 推断结果 ${inferred} 不一致`)
   }
   const generation = args.generation ?? inferred
+  if (args.source === "local") return queryLocalBatteryStatus({ clients: args.clients, batteryId, generation })
 
   const result = await queryBatteryStatus({
     clients: args.clients,
@@ -82,7 +90,7 @@ export async function queryBatteryStatusById(args: {
     summary.workingModeText = gen3WorkingModeText(workingModeStatus)
   }
 
-  return {
+  const apiResult: BatteryStatusByIdResult = {
     batteryId,
     generation,
     found: firstBase !== undefined,
@@ -93,5 +101,62 @@ export async function queryBatteryStatusById(args: {
     latestRealtime: latestRealtime ?? null,
     base: result.base,
     latest: result.latest,
+    source: "api",
   }
+  if (args.source === "auto" && !apiResult.found) {
+    const local = await queryLocalBatteryStatus({ clients: args.clients, batteryId, generation })
+    return { ...local, fallbackFrom: "api-empty" }
+  }
+  return apiResult
+}
+
+async function queryLocalBatteryStatus(args: {
+  clients: KdbApiClients
+  batteryId: string
+  generation: "gen2" | "gen3"
+}): Promise<BatteryStatusByIdResult> {
+  const repository = createLocalHistoryRepository(args.clients.config)
+  const [base, latest] = await Promise.all([
+    repository.getBase(args.generation, args.batteryId),
+    repository.getLatestRealtime(args.generation, args.batteryId),
+  ])
+  const detailFieldLabels = args.generation === "gen2" ? GEN2_BATTERY_BASE_FIELD_LABELS : GEN3_BATTERY_BASE_FIELD_LABELS
+  const summary = base
+    ? {
+        generation: args.generation,
+        batteryId: asText(base.batteryId),
+        serialNumber: asText(base.serialNumber),
+        batteryStatus: asText(base.batteryStatus),
+        firmwareVersion: asText(args.generation === "gen2" ? base.batteryVersion : base.appVersion),
+        warrantyStatus: asText(base.warrantyStatus),
+        faultStatus: asText(base.faultStatus),
+        chargeDischargeStatus: asText(base.chargeDischargeStatus),
+        networkStatus: asText(base.lte4gStatus),
+        networkTime: asText(base.lte4gTime),
+        bluetoothStatus: asText(base.bluetoothStatus),
+        bluetoothTime: asText(base.bluetoothTime),
+        ...(args.generation === "gen3" && latest?.workingModeStatus !== undefined
+          ? { workingModeStatus: asText(latest.workingModeStatus), workingModeText: gen3WorkingModeText(latest.workingModeStatus) }
+          : {}),
+      }
+    : null
+  return {
+    batteryId: args.batteryId,
+    generation: args.generation,
+    found: base !== null,
+    summary,
+    details: completeDetails(base ?? undefined, detailFieldLabels),
+    detailFieldLabels,
+    latestReport: latest,
+    latestRealtime: args.generation === "gen3" ? latest : null,
+    base: { total: base ? 1 : 0, rows: [] },
+    latest: { total: latest ? 1 : 0, rows: [] },
+    source: "local",
+    isHistorical: true,
+    asOf: asText(latest?.logTime ?? base?.updateTime ?? base?.createTime) ?? null,
+  }
+}
+
+function asText(value: unknown): string | undefined {
+  return value === undefined || value === null ? undefined : String(value)
 }

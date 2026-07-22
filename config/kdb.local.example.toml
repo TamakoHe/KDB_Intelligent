@@ -7,3 +7,12 @@ password_env = ""
 token_env = "在这里填写 Gen3 Bearer Token（不含 Bearer 前缀）"
 username_env = ""
 password_env = ""
+
+# 可选：本地历史数据源。此文件仅为示例，请勿填写真实凭据或提交 kdb.local.toml。
+[database.local]
+host = "192.168.0.66"
+port = 3306
+user = "root"
+password = "在这里填写本地历史库密码"
+database = "kadianbao"
+connection_limit = 5

@@ -18,6 +18,8 @@ import {
   assertWritable, parameterValue, resolveParameter, validateParameterValue, type ParameterDefinition,
 } from "../../domain/parameters/parameter-types.js"
 import { queryBatteryCommandReadiness } from "../status/query-command-readiness.js"
+import type { DataSource } from "../../core/data-source.js"
+import { createLocalHistoryRepository } from "../../domain/local/local-history-repository.js"
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
@@ -29,16 +31,33 @@ function target(clients: KdbApiClients, batteryId: string, generation?: "gen2" |
 }
 
 export async function listBatteryParameters(args: {
-  clients: KdbApiClients; batteryId: string; generation?: "gen2" | "gen3"; search?: string
-}) {
+  clients: KdbApiClients; batteryId: string; generation?: "gen2" | "gen3"; search?: string; source?: DataSource
+}): Promise<{
+  batteryId: string; generation: "gen2" | "gen3"; parameters: ParameterDefinition[]; total: number
+  source: "api" | "local"; isHistorical?: true; asOf?: string | null; fallbackFrom?: "api-empty"
+}> {
   const info = target(args.clients, args.batteryId, args.generation)
+  if (args.source === "local") return listLocalBatteryParameters({ ...args, ...info })
   const query: Record<string, unknown> = { pageNum: 1, pageSize: 10000 }
   if (args.search) query.parameterName = args.search
   const response = info.generation === "gen2"
     ? await listGen2Parameters(args.clients.gen2, query)
     : await listGen3Parameters(args.clients.gen3, query)
   assertTableOk({ generation: info.generation, action: "listParameters", result: response.data })
-  return { ...info, parameters: response.data.rows ?? [], total: response.data.total ?? response.data.rows?.length ?? 0 }
+  const parameters = response.data.rows ?? []
+  if (args.source === "auto" && parameters.length === 0) {
+    const local = await listLocalBatteryParameters({ ...args, ...info })
+    return { ...local, fallbackFrom: "api-empty" as const }
+  }
+  return { ...info, parameters, total: response.data.total ?? parameters.length, source: "api" as const }
+}
+
+async function listLocalBatteryParameters(args: {
+  clients: KdbApiClients; batteryId: string; generation: "gen2" | "gen3"; search?: string
+}) {
+  const rows = await createLocalHistoryRepository(args.clients.config).listParameterDefinitions({ generation: args.generation, ...(args.search ? { search: args.search } : {}) })
+  const asOf = rows.reduce<string | null>((latest, row) => String(row.updateTime ?? row.createTime ?? latest ?? "") || latest, null)
+  return { batteryId: args.batteryId, generation: args.generation, parameters: rows as ParameterDefinition[], total: rows.length, source: "local" as const, isHistorical: true as const, asOf }
 }
 
 export async function resolveBatteryParameter(args: { clients: KdbApiClients; batteryId: string; generation?: "gen2" | "gen3"; selector: string }) {

@@ -32,8 +32,10 @@ import {
   type ControlChannel,
   writeBatteryParameter,
   writeBatteryParameterBatch,
+  closeLocalHistoryRepositories,
 } from "../../index.js"
 import { resolveGeneration } from "../../core/config/index.js"
+import { assertApiOnlySource, parseDataSource } from "../../core/data-source.js"
 import type { QueryObject, QueryValue } from "../../core/http/http-client.js"
 
 const VERSION = "1.0.0"
@@ -138,12 +140,14 @@ function help(): string {
   --hours, -H <小时>         未传 start 时向前取多少小时，默认 24
   --output, -o <路径>        自定义 xlsx 输出路径
   --generation, -g <代际>   可选校验值：gen2 或 gen3
+  --source <来源>           api（默认）、local 或 auto；local 为本地历史快照，auto 仅在 API 空数据时回退
 
 通用导出:
   类型: ${EXPORT_TYPES.join(", ")}
   --query <key=value>        顶层查询参数，可重复
   --param <key=value>        params[key] 查询参数，可重复
   --start/--end/--hours      日志时间范围；Gen2 映射 createTime，Gen3 映射 logTime
+  --source <来源>           api（默认）、local 或 auto
 
 全局选项:
   --root-dir <目录>          包含 config/ 的项目或配置根目录
@@ -230,6 +234,10 @@ function requiredOption(args: ParsedArgs, name: string): string {
 function validateOptions(args: ParsedArgs, allowed: string[]): void {
   const allowedSet = new Set([...allowed, "root-dir", "help", "version"])
   for (const name of args.options.keys()) {
+    if (name === "source" && !allowedSet.has(name)) {
+      assertApiOnlySource(parseDataSource(option(args, "source")), "当前命令")
+      continue
+    }
     if (!allowedSet.has(name)) throw new Error(`未知选项 --${name}`)
   }
 }
@@ -278,6 +286,8 @@ function compactStatus(result: Awaited<ReturnType<typeof queryBatteryStatusById>
     batteryId: result.batteryId,
     generation: result.generation,
     found: result.found,
+    source: result.source ?? "api",
+    ...(result.isHistorical ? { isHistorical: true, asOf: result.asOf ?? null } : {}),
     status: summary ? {
       networkStatus: summary.networkStatus,
       networkStatusText: readiness?.networkStatusText,
@@ -363,7 +373,7 @@ async function createClients(args: ParsedArgs) {
 }
 
 async function runRealtime(args: ParsedArgs): Promise<void> {
-  validateOptions(args, ["battery-id", "start", "end", "hours", "output", "generation"])
+  validateOptions(args, ["battery-id", "start", "end", "hours", "output", "generation", "source"])
   const batteryId = requiredOption(args, "battery-id")
   const clients = await createClients(args)
   const outputPath = option(args, "output")?.trim()
@@ -371,6 +381,7 @@ async function runRealtime(args: ParsedArgs): Promise<void> {
   const end = option(args, "end")
   const hours = parseHours(option(args, "hours"))
   const generation = parseGeneration(option(args, "generation"))
+  const source = parseDataSource(option(args, "source"))
   const result = await exportBatteryRealtimeData({
     clients,
     batteryId,
@@ -378,10 +389,11 @@ async function runRealtime(args: ParsedArgs): Promise<void> {
     ...(end !== undefined ? { end } : {}),
     ...(hours !== undefined ? { hours } : {}),
     ...(generation !== undefined ? { generation } : {}),
+    ...(source !== undefined ? { source } : {}),
     ...(outputPath ? { outputPath } : {}),
   })
   process.stdout.write(
-    `导出完成\n代际: ${result.generation}\n时间: ${result.start} ~ ${result.end}\n文件: ${result.outputPath}\n`,
+    `导出完成\n代际: ${result.generation}\n来源: ${result.source}\n时间: ${result.start} ~ ${result.end}\n记录数: ${result.rowCount ?? "未知"}\n文件: ${result.outputPath}${result.fallbackFrom ? "\n回退原因: API 返回空数据" : ""}\n`,
   )
 }
 
@@ -395,6 +407,7 @@ async function runGenericExport(args: ParsedArgs, typeText: string): Promise<voi
     "start",
     "end",
     "hours",
+    "source",
   ])
   if (!EXPORT_TYPES.includes(typeText as ExportType)) {
     throw new Error(`未知导出类型 ${typeText}，可选值: ${EXPORT_TYPES.join(", ")}`)
@@ -444,27 +457,31 @@ async function runGenericExport(args: ParsedArgs, typeText: string): Promise<voi
   const query: QueryObject = { ...(topLevel as Record<string, QueryValue>) }
   if (Object.keys(params).length > 0) query.params = params
   const outputPath = option(args, "output")?.trim()
+  const source = parseDataSource(option(args, "source"))
   const result = await exportExcel({
     clients,
     generation,
     type,
     ...(Object.keys(query).length > 0 ? { query } : {}),
     ...(outputPath ? { outputPath } : {}),
+    ...(source ? { source } : {}),
   })
-  process.stdout.write(`导出完成\n代际: ${generation}\n类型: ${type}\n文件: ${result.outputPath}\n`)
+  process.stdout.write(`导出完成\n代际: ${generation}\n类型: ${type}\n来源: ${result.source}\n记录数: ${result.rowCount ?? "未知"}\n文件: ${result.outputPath}${result.fallbackFrom ? "\n回退原因: API 返回空数据" : ""}\n`)
 }
 
 async function runStatus(args: ParsedArgs, concise = false): Promise<void> {
-  validateOptions(args, ["battery-id", "generation", "json", "detail", "raw"])
+  validateOptions(args, ["battery-id", "generation", "json", "detail", "raw", "source"])
   const batteryId = requiredOption(args, "battery-id")
   const clients = await createClients(args)
   const generation = parseGeneration(option(args, "generation"))
+  const source = parseDataSource(option(args, "source"))
   const result = await queryBatteryStatusById({
     clients,
     batteryId,
     ...(generation ? { generation } : {}),
+    ...(source ? { source } : {}),
   })
-  const readiness = concise ? await queryBatteryCommandReadiness({ clients, batteryId, ...(generation ? { generation } : {}) }) : undefined
+  const readiness = concise && result.source !== "local" ? await queryBatteryCommandReadiness({ clients, batteryId, ...(generation ? { generation } : {}) }) : undefined
   const output = !concise || args.options.has("raw")
     ? result
     : args.options.has("detail")
@@ -551,15 +568,24 @@ async function runCommand(args: ParsedArgs, agentStyle = false): Promise<void> {
 async function runParameter(args: ParsedArgs, agentStyle = false): Promise<void> {
   const subcommand = normalizedSubcommand(args.positionals[1])
   if (subcommand === "list" || subcommand === "find") {
-    validateOptions(args, ["battery-id", "generation", "search", "json", "detail"])
+    validateOptions(args, ["battery-id", "generation", "search", "json", "detail", "source"])
     const positionalSearch = args.positionals[2]
     if (args.positionals.length > 3) throw new Error(`多余参数: ${args.positionals.slice(3).join(" ")}`)
     if (positionalSearch && option(args, "search")) throw new Error("参数关键词请使用位置参数或 --search 二选一")
     const clients = await createClients(args)
     const generation = parseGeneration(option(args, "generation"))
     const search = positionalSearch ?? option(args, "search")
-    const result = await listBatteryParameters({ clients, batteryId: requiredOption(args, "battery-id"), ...(generation ? { generation } : {}), ...(search ? { search } : {}) })
-    const output = !agentStyle || args.options.has("detail") ? result : { batteryId: result.batteryId, generation: result.generation, total: result.total, parameters: result.parameters.map(compactParameter) }
+    const source = parseDataSource(option(args, "source"))
+    const result = await listBatteryParameters({ clients, batteryId: requiredOption(args, "battery-id"), ...(generation ? { generation } : {}), ...(search ? { search } : {}), ...(source ? { source } : {}) })
+    const output = !agentStyle || args.options.has("detail") ? result : {
+      batteryId: result.batteryId,
+      generation: result.generation,
+      total: result.total,
+      source: result.source ?? "api",
+      ...(result.isHistorical ? { isHistorical: true, asOf: result.asOf ?? null } : {}),
+      ...(result.fallbackFrom ? { fallbackFrom: result.fallbackFrom } : {}),
+      parameters: result.parameters.map(compactParameter),
+    }
     process.stdout.write(`${JSON.stringify(output, null, 2)}\n`)
     return
   }
@@ -633,23 +659,25 @@ function modeCommand(value: string, generation: "gen2" | "gen3"): string {
 async function runMode(args: ParsedArgs): Promise<void> {
   const subcommand = normalizedSubcommand(args.positionals[1]) ?? "get"
   if (subcommand === "get") {
-    validateOptions(args, ["battery-id", "generation", "detail", "raw", "json"])
+    validateOptions(args, ["battery-id", "generation", "detail", "raw", "json", "source"])
     if (args.positionals.length > 2) throw new Error(`多余参数: ${args.positionals.slice(2).join(" ")}`)
     const clients = await createClients(args)
     const generation = parseGeneration(option(args, "generation"))
-    const result = await queryBatteryStatusById({ clients, batteryId: requiredOption(args, "battery-id"), ...(generation ? { generation } : {}) })
+    const source = parseDataSource(option(args, "source"))
+    const result = await queryBatteryStatusById({ clients, batteryId: requiredOption(args, "battery-id"), ...(generation ? { generation } : {}), ...(source ? { source } : {}) })
     const code = result.summary?.workingModeStatus
     const english = code === "0" ? "normal" : code === "1" ? "test" : code === "2" ? "lock" : code === "3" ? "emergency" : null
-    process.stdout.write(`${JSON.stringify({ batteryId: result.batteryId, generation: result.generation, mode: english, modeText: result.summary?.workingModeText ?? null, workingModeStatus: code ?? null, latestReportTime: result.latestRealtime?.logTime ?? null }, null, 2)}\n`)
+    process.stdout.write(`${JSON.stringify({ batteryId: result.batteryId, generation: result.generation, source: result.source ?? "api", ...(result.isHistorical ? { isHistorical: true, asOf: result.asOf ?? null } : {}), mode: english, modeText: result.summary?.workingModeText ?? null, workingModeStatus: code ?? null, latestReportTime: result.latestRealtime?.logTime ?? null }, null, 2)}\n`)
     return
   }
   if (subcommand !== "set") throw new Error("mode 只支持 get/查询 或 set/设置")
-  validateOptions(args, ["battery-id", "generation", "channel", "confirm", "json"])
+  validateOptions(args, ["battery-id", "generation", "channel", "confirm", "json", "source"])
   const value = args.positionals[2]
   if (!value) throw new Error("mode set 需要模式值，例如 lock 或 锁电模式")
   if (args.positionals.length > 3) throw new Error(`多余参数: ${args.positionals.slice(3).join(" ")}`)
   const clients = await createClients(args)
   const generation = parseGeneration(option(args, "generation"))
+  assertApiOnlySource(parseDataSource(option(args, "source")), "模式设置")
   const batteryId = requiredOption(args, "battery-id")
   const targetGeneration = generation ?? resolveGeneration(batteryId, clients.config)
   const result = await controlBatteryCommand({
@@ -758,11 +786,12 @@ async function runOtaFirmwareStatus(args: ParsedArgs): Promise<void> {
 async function runOta(args: ParsedArgs): Promise<void> {
   const subcommand = normalizedSubcommand(args.positionals[1])
   if (subcommand === "version" || subcommand === "get") {
-    validateOptions(args, ["battery-id", "generation", "json"])
+    validateOptions(args, ["battery-id", "generation", "json", "source"])
     if (args.positionals.length > 2) throw new Error(`多余参数: ${args.positionals.slice(2).join(" ")}`)
     const clients = await createClients(args)
     const generation = parseGeneration(option(args, "generation"))
-    const result = await queryOtaVersion({ clients, batteryId: requiredOption(args, "battery-id"), ...(generation ? { generation } : {}) })
+    const source = parseDataSource(option(args, "source"))
+    const result = await queryOtaVersion({ clients, batteryId: requiredOption(args, "battery-id"), ...(generation ? { generation } : {}), ...(source ? { source } : {}) })
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     return
   }
@@ -770,27 +799,38 @@ async function runOta(args: ParsedArgs): Promise<void> {
     return runOtaFirmwareStatus(args)
   }
   if (subcommand === "firmware" && normalizedSubcommand(args.positionals[2]) === "current") {
-    validateOptions(args, ["battery-id", "generation", "json"])
+    validateOptions(args, ["battery-id", "generation", "json", "source"])
     if (args.positionals.length > 3) throw new Error(`多余参数: ${args.positionals.slice(3).join(" ")}`)
     const clients = await createClients(args)
     const generation = parseGeneration(option(args, "generation"))
-    const result = await queryCurrentOtaFirmware({ clients, batteryId: requiredOption(args, "battery-id"), ...(generation ? { generation } : {}) })
+    const source = parseDataSource(option(args, "source"))
+    const result = await queryCurrentOtaFirmware({ clients, batteryId: requiredOption(args, "battery-id"), ...(generation ? { generation } : {}), ...(source ? { source } : {}) })
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     return
   }
   if (subcommand === "firmware" || subcommand === "list") {
     const action = subcommand === "firmware" ? normalizedSubcommand(args.positionals[2]) : "list"
     if (action !== "list") throw new Error("battery ota firmware 只支持 list/列表")
-    validateOptions(args, ["battery-id", "generation", "firmware-version", "firmware-name", "detail", "json"])
+    validateOptions(args, ["battery-id", "generation", "firmware-version", "firmware-name", "detail", "json", "source"])
     if (args.positionals.length > 3) throw new Error(`多余参数: ${args.positionals.slice(3).join(" ")}`)
     const clients = await createClients(args)
     const generation = parseGeneration(option(args, "generation"))
+    const source = parseDataSource(option(args, "source"))
     const result = await listOtaFirmware({
       clients, batteryId: requiredOption(args, "battery-id"), ...(generation ? { generation } : {}),
       ...(option(args, "firmware-version") ? { firmwareVersion: option(args, "firmware-version")! } : {}),
       ...(option(args, "firmware-name") ? { firmwareName: option(args, "firmware-name")! } : {}),
+      ...(source ? { source } : {}),
     })
-    const output = args.options.has("detail") ? result : { batteryId: result.batteryId, generation: result.generation, total: result.total, firmwares: result.firmwares.map(compactFirmware) }
+    const output = args.options.has("detail") ? result : {
+      batteryId: result.batteryId,
+      generation: result.generation,
+      total: result.total,
+      source: result.source ?? "api",
+      ...(result.isHistorical ? { isHistorical: true, asOf: result.asOf ?? null } : {}),
+      ...(result.fallbackFrom ? { fallbackFrom: result.fallbackFrom } : {}),
+      firmwares: result.firmwares.map(compactFirmware),
+    }
     process.stdout.write(`${JSON.stringify(output, null, 2)}\n`)
     return
   }
@@ -928,12 +968,13 @@ async function runBatch(args: ParsedArgs): Promise<void> {
   }
   if (area === "export") {
     const type = args.positionals[2]
-    validateOptions(args, ["battery-id", "battery-file", "channel", "output-dir", "start", "end", "hours", "json"])
+    validateOptions(args, ["battery-id", "battery-file", "channel", "output-dir", "start", "end", "hours", "json", "source"])
     if (type !== "realtime") throw new Error("batch export 当前仅支持 realtime")
     if (args.positionals.length > 3) throw new Error(`多余参数: ${args.positionals.slice(3).join(" ")}`)
     const outputDir = requiredOption(args, "output-dir")
     const hours = parseHours(option(args, "hours"))
-    const result = await exportBatteryRealtimeBatch({ clients, batteryIds, outputDir, ...(option(args, "start") ? { start: option(args, "start")! } : {}), ...(option(args, "end") ? { end: option(args, "end")! } : {}), ...(hours !== undefined ? { hours } : {}) })
+    const source = parseDataSource(option(args, "source"))
+    const result = await exportBatteryRealtimeBatch({ clients, batteryIds, outputDir, ...(option(args, "start") ? { start: option(args, "start")! } : {}), ...(option(args, "end") ? { end: option(args, "end")! } : {}), ...(hours !== undefined ? { hours } : {}), ...(source ? { source } : {}) })
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     return
   }
@@ -1001,4 +1042,11 @@ main().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error)
   process.stderr.write(`错误: ${message}\n`)
   process.exitCode = 1
+}).finally(async () => {
+  try {
+    await closeLocalHistoryRepositories()
+  } catch (error) {
+    process.stderr.write(`关闭本地历史数据库连接失败: ${error instanceof Error ? error.message : String(error)}\n`)
+    process.exitCode = 1
+  }
 })

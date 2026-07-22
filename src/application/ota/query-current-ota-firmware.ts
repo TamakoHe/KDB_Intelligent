@@ -2,6 +2,7 @@ import type { KdbApiClients } from "../../index.js"
 import { queryBatteryStatusById } from "../status/query-battery-by-id.js"
 import type { FirmwareDefinition } from "../../domain/ota/ota-types.js"
 import { listOtaFirmware, normalizeOtaTarget } from "./list-ota-firmware.js"
+import type { DataSource } from "../../core/data-source.js"
 
 function text(value: unknown): string | null {
   return value === undefined || value === null || String(value).trim() === "" ? null : String(value)
@@ -21,12 +22,18 @@ export async function queryCurrentOtaFirmware(args: {
   clients: KdbApiClients
   batteryId: string
   generation?: "gen2" | "gen3"
+  source?: DataSource
 }) {
   const target = normalizeOtaTarget(args.clients, args.batteryId, args.generation)
   const [status, listed] = await Promise.all([
-    queryBatteryStatusById({ clients: args.clients, ...target }),
-    listOtaFirmware({ clients: args.clients, ...target }),
+    queryBatteryStatusById({ clients: args.clients, ...target, ...(args.source ? { source: args.source } : {}) }),
+    listOtaFirmware({ clients: args.clients, ...target, ...(args.source ? { source: args.source } : {}) }),
   ])
+  const origin = {
+    ...(status.source ? { source: status.source } : {}),
+    ...(status.isHistorical ? { isHistorical: true as const, asOf: status.asOf ?? null } : {}),
+    ...(status.fallbackFrom ? { fallbackFrom: status.fallbackFrom } : {}),
+  }
   const details = status.details ?? {}
   const currentVersion = text(status.summary?.firmwareVersion ?? details[target.generation === "gen2" ? "batteryVersion" : "appVersion"])
   const serialNumber = text(status.summary?.serialNumber ?? details.serialNumber)
@@ -40,6 +47,7 @@ export async function queryCurrentOtaFirmware(args: {
   if (exactCandidates.length === 1) {
     return {
       ...target,
+      ...origin,
       found: status.found,
       currentVersion,
       versionField: target.generation === "gen2" ? "battery_version" as const : "app_version" as const,
@@ -56,6 +64,7 @@ export async function queryCurrentOtaFirmware(args: {
   if (exactCandidates.length > 1) {
     return {
       ...target,
+      ...origin,
       found: status.found,
       currentVersion,
       versionField: target.generation === "gen2" ? "battery_version" as const : "app_version" as const,
@@ -81,6 +90,7 @@ export async function queryCurrentOtaFirmware(args: {
   const firmware: FirmwareDefinition | null = preferredNameCandidates.length === 1 ? preferredNameCandidates[0]! : null
   return {
     ...target,
+    ...origin,
     found: status.found,
     currentVersion,
     versionField: target.generation === "gen2" ? "battery_version" as const : "app_version" as const,

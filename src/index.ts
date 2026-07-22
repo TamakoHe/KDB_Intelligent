@@ -28,6 +28,9 @@ export { type ParameterDefinition } from "./domain/parameters/parameter-types.js
 export { exportExcel, type ExportType } from "./application/export/export-excel.js"
 export { exportBatteryRealtimeData, type BatteryGeneration } from "./application/export/export-realtime-data.js"
 export { formatLocalDateTime, parseDateTime, resolveTimeRange, type DateTimeInput } from "./core/date-time.js"
+export { type DataSource, type QueryOrigin } from "./core/data-source.js"
+export { LocalHistoryRepository, createLocalHistoryRepository, closeLocalHistoryRepositories, normalizeBatteryId, detailTable } from "./domain/local/local-history-repository.js"
+export { exportLocalHistory } from "./application/export/export-local-history.js"
 import * as path from 'path';
 import { fileURLToPath } from "url"
 const __filename = fileURLToPath(import.meta.url)
