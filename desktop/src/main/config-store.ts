@@ -1,4 +1,5 @@
 import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises"
+import dgram from "node:dgram"
 import path from "node:path"
 import * as toml from "@iarna/toml"
 import mysql from "mysql2/promise"
@@ -55,6 +56,10 @@ export class ConfigStore {
     if (!host || !user) return { configured: false, ok: false, host, port, database, message: "未配置 [database.local] 的 host 或 user。" }
 
     try {
+      // Keep this operation in the long-lived GUI process. macOS records local
+      // network permission after an actual local-network operation; a short-
+      // lived CLI child can exit before the system presents the prompt.
+      await primeLocalNetworkPermission(host, port)
       const connection = await mysql.createConnection({ host, port, user, password, database, connectTimeout: 3_000 })
       try {
         await connection.query("SELECT 1")
@@ -78,6 +83,26 @@ export class ConfigStore {
       await copyFile(source, destination)
     }
   }
+}
+
+function primeLocalNetworkPermission(host: string, port: number): Promise<void> {
+  return new Promise((resolve) => {
+    const socket = dgram.createSocket("udp4")
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      socket.close(() => resolve())
+    }
+    socket.once("connect", finish)
+    socket.once("error", finish)
+    setTimeout(finish, 750).unref()
+    try {
+      socket.connect(port, host)
+    } catch {
+      finish()
+    }
+  })
 }
 
 function stringValue(value: unknown): string | undefined {
