@@ -21,6 +21,7 @@ const api: KdbDesktopApi = {
     cancel: (actionId: string) => ipcRenderer.invoke("action:cancel", actionId),
   },
   file: { reveal: (filePath: string) => ipcRenderer.invoke("file:reveal", filePath) },
+  clipboard: { writeText: (value: string) => ipcRenderer.invoke("clipboard:write", value) },
 }
 
 contextBridge.exposeInMainWorld("kdb", api)

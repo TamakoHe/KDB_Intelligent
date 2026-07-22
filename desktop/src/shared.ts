@@ -39,6 +39,11 @@ export type LocalDatabaseConnectionTest = {
   database?: string
   message: string
   errorCode?: string
+  workaround?: {
+    title: string
+    description: string
+    command: string
+  }
 }
 
 export type ChatHistoryItem = {
@@ -59,4 +64,5 @@ export type KdbDesktopApi = {
   chat: { send(text: string): Promise<ChatReply> }
   action: { confirm(actionId: string): Promise<ResultCard>; cancel(actionId: string): Promise<void> }
   file: { reveal(path: string): Promise<void> }
+  clipboard: { writeText(value: string): Promise<void> }
 }

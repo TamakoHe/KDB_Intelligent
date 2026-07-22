@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from "electron"
+import { app, BrowserWindow, clipboard, ipcMain, shell } from "electron"
 import { join, resolve } from "node:path"
 import { KdbAgent } from "./agent.js"
 import { ConfigStore } from "./config-store.js"
@@ -51,6 +51,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("action:confirm", async (_event, actionId: string) => confirmAction(actionId, await settings.get()))
   ipcMain.handle("action:cancel", (_event, actionId: string) => cancelAction(actionId))
   ipcMain.handle("file:reveal", (_event, filePath: string) => shell.showItemInFolder(filePath))
+  ipcMain.handle("clipboard:write", (_event, value: string) => clipboard.writeText(value))
 
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })

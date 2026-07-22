@@ -72,7 +72,14 @@ export class ConfigStore {
       const permissionHint = code === "EHOSTUNREACH"
         ? "。请确认系统设置 → 隐私与安全性 → 本地网络中已允许 KDB Copilot；若已允许，再检查当前网络能否访问该主机。"
         : ""
-      return { configured: true, ok: false, host, port, database, ...(code ? { errorCode: code } : {}), message: `连接失败：${messageOf(error)}${permissionHint}` }
+      const workaround = process.platform === "darwin" && code === "EHOSTUNREACH" && host === "192.168.0.66"
+        ? {
+            title: "macOS 本地网络兼容设置",
+            description: "该命令会让 192.168.0.0/23 Wi‑Fi 网段不再受本地网络授权拦截，对所有本机应用生效；执行后需要重启 Mac。",
+            command: "sudo defaults write com.apple.network.local-network AllowedWiFiLocalNetworkAddresses -array \"192.168.0.0/23\"",
+          }
+        : undefined
+      return { configured: true, ok: false, host, port, database, ...(code ? { errorCode: code } : {}), ...(workaround ? { workaround } : {}), message: `连接失败：${messageOf(error)}${permissionHint}` }
     }
   }
 

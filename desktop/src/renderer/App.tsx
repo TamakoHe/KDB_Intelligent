@@ -150,6 +150,13 @@ function Settings({ value, onChange, onSave, onEditConfig, onClose }: { value: A
 }
 
 function ConfigEditor({ value, onChange, onSave, onTest, testing, connectionTest, onClose }: { value: KdbConfigFiles; onChange(value: KdbConfigFiles): void; onSave(event: FormEvent): Promise<void>; onTest(): Promise<void>; testing: boolean; connectionTest: LocalDatabaseConnectionTest | null; onClose(): void }) {
+  const [copiedWorkaround, setCopiedWorkaround] = useState(false)
+  async function copyWorkaround(): Promise<void> {
+    if (!connectionTest?.workaround) return
+    await window.kdb.clipboard.writeText(connectionTest.workaround.command)
+    setCopiedWorkaround(true)
+  }
+
   return <div className="modal-backdrop"><form className="settings config-editor" onSubmit={(event) => { void onSave(event) }}>
     <h2>应用内 KDB 配置</h2>
     <p className="muted">保存位置：{value.configRoot}/config。保存后下一次查询会使用新配置。</p>
@@ -157,6 +164,12 @@ function ConfigEditor({ value, onChange, onSave, onTest, testing, connectionTest
     <label>kdb.local.toml<textarea value={value.localToml} onChange={(event) => onChange({ ...value, localToml: event.target.value })} rows={14} /></label>
     <button type="button" disabled={testing} onClick={() => { void onTest() }}>{testing ? "正在测试本地库…" : "测试本地历史库连接"}</button>
     {connectionTest && <p className={`connection-result ${connectionTest.ok ? "ok" : "failed"}`}>{connectionTest.host && `${connectionTest.host}:${connectionTest.port} · `}{connectionTest.message}{connectionTest.errorCode && ` (${connectionTest.errorCode})`}</p>}
+    {connectionTest?.workaround && <section className="network-workaround">
+      <strong>{connectionTest.workaround.title}</strong>
+      <p>{connectionTest.workaround.description}</p>
+      <code>{connectionTest.workaround.command}</code>
+      <button type="button" onClick={() => { void copyWorkaround() }}>{copiedWorkaround ? "已复制" : "复制命令"}</button>
+    </section>}
     <div className="modal-actions"><button type="button" onClick={onClose}>取消</button><button type="submit">保存配置</button></div>
   </form></div>
 }
