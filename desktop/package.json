@@ -52,6 +52,7 @@
         "filter": [
           "!@esbuild{,/**/*}",
           "!@types{,/**/*}",
+          "!**/.bin{,/**/*}",
           "!esbuild{,/**/*}",
           "!fsevents{,/**/*}",
           "!tsx{,/**/*}",
@@ -78,7 +79,8 @@
       ],
       "extendInfo": {
         "NSLocalNetworkUsageDescription": "KDB Copilot 需要访问局域网中的本地历史数据库，以导出电池历史数据。"
-      }
+      },
+      "signIgnore": "\\.pak$"
     },
     "win": {
       "target": [
