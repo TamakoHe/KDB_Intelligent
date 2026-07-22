@@ -9,6 +9,7 @@ const api: KdbDesktopApi = {
   config: {
     get: () => ipcRenderer.invoke("config:get"),
     save: (value) => ipcRenderer.invoke("config:save", value),
+    testLocalDatabase: (localToml) => ipcRenderer.invoke("config:testLocalDatabase", localToml),
   },
   history: {
     list: () => ipcRenderer.invoke("history:list"),

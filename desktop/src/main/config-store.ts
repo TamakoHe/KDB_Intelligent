@@ -1,6 +1,8 @@
 import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
-import type { KdbConfigFiles } from "../shared.js"
+import * as toml from "@iarna/toml"
+import mysql from "mysql2/promise"
+import type { KdbConfigFiles, LocalDatabaseConnectionTest } from "../shared.js"
 
 export class ConfigStore {
   readonly configRoot: string
@@ -37,6 +39,35 @@ export class ConfigStore {
     return this.read()
   }
 
+  async testLocalDatabase(localToml: string): Promise<LocalDatabaseConnectionTest> {
+    let local: Record<string, unknown> | undefined
+    try {
+      const parsed = toml.parse(localToml) as { database?: { local?: Record<string, unknown> } }
+      local = parsed.database?.local
+    } catch (error) {
+      return { configured: false, ok: false, message: `kdb.local.toml 格式错误：${messageOf(error)}` }
+    }
+    const host = stringValue(local?.host)
+    const port = numberValue(local?.port) ?? 3306
+    const user = stringValue(local?.user)
+    const password = stringValue(local?.password) ?? ""
+    const database = stringValue(local?.database) ?? "kadianbao"
+    if (!host || !user) return { configured: false, ok: false, host, port, database, message: "未配置 [database.local] 的 host 或 user。" }
+
+    try {
+      const connection = await mysql.createConnection({ host, port, user, password, database, connectTimeout: 3_000 })
+      try {
+        await connection.query("SELECT 1")
+      } finally {
+        await connection.end()
+      }
+      return { configured: true, ok: true, host, port, database, message: "已成功连接本地历史库（只读连通性验证）。" }
+    } catch (error) {
+      const code = error instanceof Error && "code" in error ? String((error as { code?: unknown }).code ?? "") : undefined
+      return { configured: true, ok: false, host, port, database, ...(code ? { errorCode: code } : {}), message: `连接失败：${messageOf(error)}` }
+    }
+  }
+
   private async copyIfMissing(source: string, destination: string): Promise<void> {
     try {
       await access(destination)
@@ -44,4 +75,16 @@ export class ConfigStore {
       await copyFile(source, destination)
     }
   }
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }

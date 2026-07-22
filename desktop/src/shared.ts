@@ -31,6 +31,16 @@ export type KdbConfigFiles = {
   configRoot: string
 }
 
+export type LocalDatabaseConnectionTest = {
+  configured: boolean
+  ok: boolean
+  host?: string
+  port?: number
+  database?: string
+  message: string
+  errorCode?: string
+}
+
 export type ChatHistoryItem = {
   id: number
   role: "user" | "assistant"
@@ -40,7 +50,11 @@ export type ChatHistoryItem = {
 
 export type KdbDesktopApi = {
   settings: { get(): Promise<AppSettings>; save(value: AppSettings): Promise<AppSettings> }
-  config: { get(): Promise<KdbConfigFiles>; save(value: Pick<KdbConfigFiles, "publicToml" | "localToml">): Promise<KdbConfigFiles> }
+  config: {
+    get(): Promise<KdbConfigFiles>
+    save(value: Pick<KdbConfigFiles, "publicToml" | "localToml">): Promise<KdbConfigFiles>
+    testLocalDatabase(localToml: string): Promise<LocalDatabaseConnectionTest>
+  }
   history: { list(): Promise<ChatHistoryItem[]>; clear(): Promise<void> }
   chat: { send(text: string): Promise<ChatReply> }
   action: { confirm(actionId: string): Promise<ResultCard>; cancel(actionId: string): Promise<void> }

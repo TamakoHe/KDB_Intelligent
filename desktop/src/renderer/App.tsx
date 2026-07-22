@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react"
-import type { AppSettings, ChatHistoryItem, KdbConfigFiles, ResultCard } from "../shared"
+import type { AppSettings, ChatHistoryItem, KdbConfigFiles, LocalDatabaseConnectionTest, ResultCard } from "../shared"
 
 type Message = ChatHistoryItem & { cards?: ResultCard[] }
 
@@ -11,6 +11,8 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [config, setConfig] = useState<KdbConfigFiles | null>(null)
   const [showConfig, setShowConfig] = useState(false)
+  const [connectionTest, setConnectionTest] = useState<LocalDatabaseConnectionTest | null>(null)
+  const [testingConnection, setTestingConnection] = useState(false)
   const [error, setError] = useState("")
 
   useEffect(() => {
@@ -64,10 +66,23 @@ export function App() {
     setError("")
     try {
       setConfig(await window.kdb.config.get())
+      setConnectionTest(null)
       setShowSettings(false)
       setShowConfig(true)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+
+  async function testLocalDatabase() {
+    if (!config) return
+    setTestingConnection(true)
+    try {
+      setConnectionTest(await window.kdb.config.testLocalDatabase(config.localToml))
+    } catch (reason) {
+      setConnectionTest({ configured: false, ok: false, message: reason instanceof Error ? reason.message : String(reason) })
+    } finally {
+      setTestingConnection(false)
     }
   }
 
@@ -108,7 +123,7 @@ export function App() {
       </form>
     </section>
     {showSettings && settings && <Settings value={settings} onChange={setSettings} onSave={saveSettings} onEditConfig={openConfig} onClose={() => setShowSettings(false)} />}
-    {showConfig && config && <ConfigEditor value={config} onChange={setConfig} onSave={saveConfig} onClose={() => setShowConfig(false)} />}
+    {showConfig && config && <ConfigEditor value={config} onChange={setConfig} onSave={saveConfig} onTest={testLocalDatabase} testing={testingConnection} connectionTest={connectionTest} onClose={() => setShowConfig(false)} />}
   </main>
 }
 
@@ -134,12 +149,14 @@ function Settings({ value, onChange, onSave, onEditConfig, onClose }: { value: A
   </form></div>
 }
 
-function ConfigEditor({ value, onChange, onSave, onClose }: { value: KdbConfigFiles; onChange(value: KdbConfigFiles): void; onSave(event: FormEvent): Promise<void>; onClose(): void }) {
+function ConfigEditor({ value, onChange, onSave, onTest, testing, connectionTest, onClose }: { value: KdbConfigFiles; onChange(value: KdbConfigFiles): void; onSave(event: FormEvent): Promise<void>; onTest(): Promise<void>; testing: boolean; connectionTest: LocalDatabaseConnectionTest | null; onClose(): void }) {
   return <div className="modal-backdrop"><form className="settings config-editor" onSubmit={(event) => { void onSave(event) }}>
     <h2>应用内 KDB 配置</h2>
     <p className="muted">保存位置：{value.configRoot}/config。保存后下一次查询会使用新配置。</p>
     <label>kdb.toml<textarea value={value.publicToml} onChange={(event) => onChange({ ...value, publicToml: event.target.value })} rows={12} /></label>
     <label>kdb.local.toml<textarea value={value.localToml} onChange={(event) => onChange({ ...value, localToml: event.target.value })} rows={14} /></label>
+    <button type="button" disabled={testing} onClick={() => { void onTest() }}>{testing ? "正在测试本地库…" : "测试本地历史库连接"}</button>
+    {connectionTest && <p className={`connection-result ${connectionTest.ok ? "ok" : "failed"}`}>{connectionTest.host && `${connectionTest.host}:${connectionTest.port} · `}{connectionTest.message}{connectionTest.errorCode && ` (${connectionTest.errorCode})`}</p>}
     <div className="modal-actions"><button type="button" onClick={onClose}>取消</button><button type="submit">保存配置</button></div>
   </form></div>
 }

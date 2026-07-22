@@ -7,7 +7,7 @@ import type { AppSettings, ResultCard } from "../shared.js"
 
 type PlannedStep = { id: string; purpose: string; argv: string[] }
 type PendingAction = { argv: string[]; confirmationToken: string }
-type CliStepResult = { id: string; purpose: string; argv: string[]; ok: boolean; exitCode: number; data?: unknown; error?: string }
+type CliStepResult = { id: string; purpose: string; argv: string[]; ok: boolean; exitCode: number; attempts: number; data?: unknown; error?: string }
 
 const pendingActions = new Map<string, PendingAction>()
 const safeStepId = z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/)
@@ -37,7 +37,7 @@ export async function executeTool(name: string, rawArgs: unknown, settings: AppS
   for (const step of parsed.data.steps) {
     const checked = normalizeAndValidate(step, parsed.data.steps.length)
     if (!checked.ok) {
-      const result: CliStepResult = { id: step.id, purpose: step.purpose, argv: step.argv, ok: false, exitCode: -1, error: checked.error }
+      const result: CliStepResult = { id: step.id, purpose: step.purpose, argv: step.argv, ok: false, exitCode: -1, attempts: 0, error: checked.error }
       results.push(result)
       cards.push(errorCard("KDB 命令计划被拒绝", `${step.id}：${checked.error}`))
       continue
@@ -122,10 +122,29 @@ function cliEntry(): string {
 
 async function runCliStep(step: PlannedStep, settings: AppSettings, confirmed = false): Promise<CliStepResult> {
   const argv = [...step.argv, "--root-dir", settings.kdbConfigRoot]
-  const execution = await spawnCli(argv)
+  let attempts = 0
+  let execution: { exitCode: number; stdout: string; stderr: string }
+  do {
+    attempts++
+    execution = await spawnCli(argv)
+    if (!shouldRetryLocalRoute(argv, execution) || attempts === 3) break
+    await wait(attempts * 750)
+  } while (true)
   const data = parseJson(execution.stdout)
-  if (execution.exitCode !== 0) return { id: step.id, purpose: step.purpose, argv: step.argv, ok: false, exitCode: execution.exitCode, error: execution.stderr.trim() || execution.stdout.trim() || "CLI 执行失败", ...(data !== undefined ? { data } : {}) }
-  return { id: step.id, purpose: step.purpose, argv: step.argv, ok: true, exitCode: 0, ...(data !== undefined ? { data } : {}), ...(confirmed ? { confirmed: true } : {}) } as CliStepResult
+  if (execution.exitCode !== 0) {
+    const baseError = execution.stderr.trim() || execution.stdout.trim() || "CLI 执行失败"
+    const error = attempts > 1 && /EHOSTUNREACH/.test(baseError) ? `${baseError}（已重试 ${attempts} 次）` : baseError
+    return { id: step.id, purpose: step.purpose, argv: step.argv, ok: false, exitCode: execution.exitCode, attempts, error, ...(data !== undefined ? { data } : {}) }
+  }
+  return { id: step.id, purpose: step.purpose, argv: step.argv, ok: true, exitCode: 0, attempts, ...(data !== undefined ? { data } : {}), ...(confirmed ? { confirmed: true } : {}) } as CliStepResult
+}
+
+function shouldRetryLocalRoute(argv: string[], execution: { exitCode: number; stdout: string; stderr: string }): boolean {
+  return execution.exitCode !== 0 && hasOption(argv, "--source") && /EHOSTUNREACH/.test(`${execution.stdout}\n${execution.stderr}`)
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
 function spawnCli(argv: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {

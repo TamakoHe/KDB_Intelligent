@@ -44,6 +44,7 @@ app.whenReady().then(async () => {
     await closeKdbCore()
     return saved
   })
+  ipcMain.handle("config:testLocalDatabase", (_event, localToml: string) => configStore.testLocalDatabase(localToml))
   ipcMain.handle("history:list", () => history.list())
   ipcMain.handle("history:clear", () => history.clear())
   ipcMain.handle("chat:send", async (_event, text: string) => agent.reply(text, await settings.get()))
