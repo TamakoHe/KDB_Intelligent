@@ -1,0 +1,59 @@
+{
+  "name": "kdb-copilot-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "KDB Copilot desktop application",
+  "type": "module",
+  "main": "out/main/index.js",
+  "scripts": {
+    "build:core": "npm --prefix .. run build",
+    "dev": "npm run build:core && electron-vite dev",
+    "build": "npm run build:core && electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dist:mac": "npm run build && electron-builder --mac dmg",
+    "dist:win": "npm run build && electron-builder --win nsis --x64"
+  },
+  "dependencies": {
+    "openai": "4.104.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@electron-toolkit/preload": "^3.0.2",
+    "@electron-toolkit/utils": "^4.0.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.8",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.2",
+    "electron": "^40.1.0",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^5.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  },
+  "build": {
+    "appId": "com.tamakohe.kdb-copilot",
+    "productName": "KDB Copilot",
+    "files": ["out/**/*", "package.json"],
+    "extraResources": [
+      { "from": "../dist", "to": "kdb-core" },
+      {
+        "from": "../node_modules",
+        "to": "kdb-core/node_modules",
+        "filter": [
+          "!@esbuild{,/**/*}",
+          "!@types{,/**/*}",
+          "!esbuild{,/**/*}",
+          "!fsevents{,/**/*}",
+          "!tsx{,/**/*}",
+          "!typescript{,/**/*}",
+          "!undici-types{,/**/*}"
+        ]
+      },
+      { "from": "../config/kdb.toml", "to": "kdb-core/config/kdb.toml" }
+    ],
+    "mac": { "target": ["dmg"], "identity": null },
+    "win": { "target": ["nsis"] }
+  }
+}
