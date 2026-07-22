@@ -47,7 +47,16 @@ export class HistoryStore {
 }
 
 function toHistoricalCard(card: ResultCard): ResultCard {
+  const wasActionable = Boolean(card.actionId)
   const { actionId: _actionId, actionLabel: _actionLabel, ...historical } = card
+  if ((wasActionable || card.kind === "preview") && !card.actionExpired) {
+    return {
+      ...historical,
+      actionExpired: true,
+      title: `${historical.title}（已失效）`,
+      summary: `${historical.summary}\n\n> 此预览的确认令牌仅在当前运行期间短时有效。请重新发起该操作以获得新的确认卡片。`,
+    }
+  }
   return historical
 }
 

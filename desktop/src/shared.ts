@@ -9,6 +9,8 @@ export type ResultCard = {
   data?: Record<string, unknown>
   actionId?: string
   actionLabel?: string
+  /** A preview loaded from prior history; its short-lived confirmation token is no longer usable. */
+  actionExpired?: boolean
 }
 
 export type ChatReply = {
