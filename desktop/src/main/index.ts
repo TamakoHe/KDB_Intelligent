@@ -48,7 +48,11 @@ app.whenReady().then(async () => {
   ipcMain.handle("history:list", () => history.list())
   ipcMain.handle("history:clear", () => history.clear())
   ipcMain.handle("chat:send", async (_event, text: string) => agent.reply(text, await settings.get()))
-  ipcMain.handle("action:confirm", async (_event, actionId: string) => confirmAction(actionId, await settings.get()))
+  ipcMain.handle("action:confirm", async (_event, actionId: string) => {
+    const result = await confirmAction(actionId, await settings.get())
+    history.append("assistant", result.summary, [result])
+    return result
+  })
   ipcMain.handle("action:cancel", (_event, actionId: string) => cancelAction(actionId))
   ipcMain.handle("file:reveal", (_event, filePath: string) => shell.showItemInFolder(filePath))
   ipcMain.handle("clipboard:write", (_event, value: string) => clipboard.writeText(value))

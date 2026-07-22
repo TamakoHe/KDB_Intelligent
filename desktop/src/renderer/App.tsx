@@ -1,7 +1,9 @@
 import { FormEvent, useEffect, useState } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import type { AppSettings, ChatHistoryItem, KdbConfigFiles, LocalDatabaseConnectionTest, ResultCard } from "../shared"
 
-type Message = ChatHistoryItem & { cards?: ResultCard[] }
+type Message = ChatHistoryItem
 
 export function App() {
   const [messages, setMessages] = useState<Message[]>([])
@@ -111,7 +113,7 @@ export function App() {
       <div className="messages">
         {messages.length === 0 && <div className="empty"><h3>可以这样问</h3><p>“查询 623B1C10 的状态”</p><p>“导出它在 2026-05-15 13:45 到 15:45 的历史数据，API 为空就查本地”</p><p>“预览锁电模式，不要立即执行”</p></div>}
         {messages.map((message) => <article className={`message ${message.role}`} key={message.id}>
-          <p>{message.content}</p>
+          {message.role === "assistant" ? <Markdown content={message.content} /> : <p>{message.content}</p>}
           {message.cards?.map((card) => <Card key={card.id} card={card} busy={busy} onConfirm={confirm} />)}
         </article>)}
         {busy && <div className="thinking">正在查询和整理结果…</div>}
@@ -131,11 +133,15 @@ function Card({ card, busy, onConfirm }: { card: ResultCard; busy: boolean; onCo
   const data = card.data ?? {}
   const outputPath = typeof data.outputPath === "string" ? data.outputPath : undefined
   return <section className={`card ${card.kind}`}>
-    <strong>{card.title}</strong><p>{card.summary}</p>
+    <strong>{card.title}</strong><Markdown content={card.summary} />
     {outputPath && <button onClick={() => { void window.kdb.file.reveal(outputPath) }}>显示导出文件</button>}
     {card.actionId && <div className="card-actions"><button className="danger" disabled={busy} onClick={() => { void onConfirm(card) }}>{card.actionLabel ?? "确认执行"}</button><button disabled={busy} onClick={() => { window.kdb.action.cancel(card.actionId!); }}>取消</button></div>}
     {Object.keys(data).length > 0 && <details><summary>查看原始结果</summary><pre>{JSON.stringify(data, null, 2)}</pre></details>}
   </section>
+}
+
+function Markdown({ content }: { content: string }) {
+  return <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown></div>
 }
 
 function Settings({ value, onChange, onSave, onEditConfig, onClose }: { value: AppSettings; onChange(value: AppSettings): void; onSave(event: FormEvent): Promise<void>; onEditConfig(): Promise<void>; onClose(): void }) {

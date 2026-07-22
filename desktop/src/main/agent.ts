@@ -27,7 +27,7 @@ export class KdbAgent {
       messages.push(message)
       if (!message.tool_calls?.length) {
         const answer = message.content?.trim() || "已完成处理。"
-        this.history.append("assistant", answer)
+        this.history.append("assistant", answer, cards)
         return { text: answer, cards }
       }
       for (const call of message.tool_calls) {

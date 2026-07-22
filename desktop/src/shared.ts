@@ -51,6 +51,8 @@ export type ChatHistoryItem = {
   role: "user" | "assistant"
   content: string
   createdAt: string
+  /** Result cards belonging to this message. Historical cards never retain confirmation tokens. */
+  cards?: ResultCard[]
 }
 
 export type KdbDesktopApi = {
