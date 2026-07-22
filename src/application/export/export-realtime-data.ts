@@ -4,6 +4,7 @@ import { resolveTimeRange, type DateTimeInput } from "../../core/date-time.js"
 import { exportExcel } from "./export-excel.js"
 import { exportLocalHistory } from "./export-local-history.js"
 import type { DataSource } from "../../core/data-source.js"
+import { normalizeExportMaxRows } from "../../core/export/limits.js"
 import ExcelJS from "exceljs"
 
 export type BatteryGeneration = "gen2" | "gen3"
@@ -17,6 +18,7 @@ export async function exportBatteryRealtimeData(args: {
   generation?: BatteryGeneration
   outputPath?: string
   source?: DataSource
+  maxRows?: number
 }): Promise<{
   outputPath: string
   filename?: string
@@ -48,6 +50,7 @@ export async function exportBatteryRealtimeData(args: {
       : { beginLogTime: range.startText, endLogTime: range.endText }
 
   const source = args.source ?? "api"
+  const maxRows = normalizeExportMaxRows(args.maxRows)
   if (source === "local") {
     const local = await exportLocalHistory({
       clients: args.clients,
@@ -56,6 +59,7 @@ export async function exportBatteryRealtimeData(args: {
       batteryId,
       start: range.startText,
       end: range.endText,
+      maxRows,
       ...(args.outputPath?.trim() ? { outputPath: args.outputPath.trim() } : {}),
     })
     return { ...local, generation, exportType, start: range.startText, end: range.endText }
@@ -66,6 +70,7 @@ export async function exportBatteryRealtimeData(args: {
     generation,
     type: exportType,
     query: { batteryId, params: timeParams },
+    maxRows,
     ...(args.outputPath?.trim() ? { outputPath: args.outputPath.trim() } : {}),
   })
 
@@ -90,6 +95,7 @@ export async function exportBatteryRealtimeData(args: {
       start: range.startText,
       end: range.endText,
       outputPath: result.outputPath,
+      maxRows,
     })
     return { ...local, generation, exportType, start: range.startText, end: range.endText, fallbackFrom: "api-empty" }
   }

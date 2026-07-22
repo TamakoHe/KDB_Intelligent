@@ -16,6 +16,7 @@ import { exportGen3Cycle01MsgLog } from "../../domain/gen3/logs/kdb-cycle01-msg-
 import { exportGen3StatusCommandLog } from "../../domain/gen3/logs/kdb-status-command-log-api.js"
 import { exportLocalHistory } from "./export-local-history.js"
 import type { DataSource } from "../../core/data-source.js"
+import { normalizeExportMaxRows } from "../../core/export/limits.js"
 
 export type Generation = "gen2" | "gen3"
 
@@ -51,10 +52,12 @@ export async function exportExcel(args: {
   query?: QueryObject
   outputPath?: string
   source?: DataSource
+  maxRows?: number
 }): Promise<{ outputPath: string; filename?: string; source: "api" | "local"; rowCount?: number; fallbackFrom?: "api-empty" }> {
   const cfg = getRuntimeConfigFromClients(args.clients)
   const defaultDir = getDefaultOutputDir(cfg)
   const source = args.source ?? "api"
+  const maxRows = normalizeExportMaxRows(args.maxRows)
   const queryRecord = (args.query ?? {}) as Record<string, unknown>
   const params = (queryRecord.params ?? {}) as Record<string, unknown>
   const batteryId = typeof queryRecord.batteryId === "string"
@@ -63,25 +66,28 @@ export async function exportExcel(args: {
   const start = typeof params.beginLogTime === "string" ? params.beginLogTime : typeof params.beginCreateTime === "string" ? params.beginCreateTime : undefined
   const end = typeof params.endLogTime === "string" ? params.endLogTime : typeof params.endCreateTime === "string" ? params.endCreateTime : undefined
   if (source === "local") {
-    return exportLocalHistory({ clients: args.clients, generation: args.generation, type: args.type, ...(batteryId ? { batteryId } : {}), ...(start ? { start } : {}), ...(end ? { end } : {}), ...(args.outputPath ? { outputPath: args.outputPath } : {}) })
+    return exportLocalHistory({ clients: args.clients, generation: args.generation, type: args.type, ...(batteryId ? { batteryId } : {}), ...(start ? { start } : {}), ...(end ? { end } : {}), ...(args.outputPath ? { outputPath: args.outputPath } : {}), maxRows })
   }
+
+  // The website export endpoints use pageSize as their export-row cap.
+  const exportQuery: QueryObject = { ...(args.query ?? {}), pageSize: maxRows }
 
   const client = args.clients.getClient(args.generation)
   let res: { data: ArrayBuffer; status: number; headers: Headers }
 
   if (args.generation === "gen2") {
-    if (args.type === "batteryBase") res = await exportGen2BatteryBase(client, args.query)
-    else if (args.type === "latestBatteryTable") res = await exportGen2LatestBatteryTable(client, args.query ?? {})
-    else if (args.type === "nettyLog") res = await exportGen2NettyLog(client, args.query)
-    else if (args.type === "statusNettyLog") res = await exportGen2StatusNettyLog(client, args.query)
-    else if (args.type === "bluetoothCommandTasks") res = await exportGen2BluetoothCommandTasks(client, args.query)
-    else if (args.type === "realtimeMsgLog") res = await exportGen2RealtimeMsgLog(client, args.query)
+    if (args.type === "batteryBase") res = await exportGen2BatteryBase(client, exportQuery)
+    else if (args.type === "latestBatteryTable") res = await exportGen2LatestBatteryTable(client, exportQuery)
+    else if (args.type === "nettyLog") res = await exportGen2NettyLog(client, exportQuery)
+    else if (args.type === "statusNettyLog") res = await exportGen2StatusNettyLog(client, exportQuery)
+    else if (args.type === "bluetoothCommandTasks") res = await exportGen2BluetoothCommandTasks(client, exportQuery)
+    else if (args.type === "realtimeMsgLog") res = await exportGen2RealtimeMsgLog(client, exportQuery)
     else throw new Error(`[gen2] 不支持导出类型: ${args.type}`)
   } else {
-    if (args.type === "batteryBase") res = await exportGen3BatteryBase(client, args.query)
-    else if (args.type === "reportBatteryLog") res = await exportGen3ReportBatteryLog(client, args.query)
-    else if (args.type === "cycle01MsgLog") res = await exportGen3Cycle01MsgLog(client, args.query)
-    else if (args.type === "statusCommandLog") res = await exportGen3StatusCommandLog(client, args.query)
+    if (args.type === "batteryBase") res = await exportGen3BatteryBase(client, exportQuery)
+    else if (args.type === "reportBatteryLog") res = await exportGen3ReportBatteryLog(client, exportQuery)
+    else if (args.type === "cycle01MsgLog") res = await exportGen3Cycle01MsgLog(client, exportQuery)
+    else if (args.type === "statusCommandLog") res = await exportGen3StatusCommandLog(client, exportQuery)
     else throw new Error(`[gen3] 不支持导出类型: ${args.type}`)
   }
 
@@ -102,7 +108,7 @@ export async function exportExcel(args: {
 
   const rowCount = await xlsxDataRowCount(finalOutputPath)
   if (rowCount === 0) {
-    const local = await exportLocalHistory({ clients: args.clients, generation: args.generation, type: args.type, ...(batteryId ? { batteryId } : {}), ...(start ? { start } : {}), ...(end ? { end } : {}), outputPath: finalOutputPath })
+    const local = await exportLocalHistory({ clients: args.clients, generation: args.generation, type: args.type, ...(batteryId ? { batteryId } : {}), ...(start ? { start } : {}), ...(end ? { end } : {}), outputPath: finalOutputPath, maxRows })
     return { ...local, fallbackFrom: "api-empty" }
   }
   return filename ? { outputPath: finalOutputPath, filename, source: "api", rowCount } : { outputPath: finalOutputPath, source: "api", rowCount }

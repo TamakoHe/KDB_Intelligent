@@ -19,7 +19,7 @@ export class KdbAgent {
     const client = new OpenAI({ apiKey: settings.deepseek.apiKey, baseURL: settings.deepseek.baseUrl, dangerouslyAllowBrowser: false })
     const skill = await loadKdbSkill()
     const messages: any[] = [
-      { role: "system", content: `${SYSTEM_PROMPT}\n\n--- KDB CLI SKILL.md ---\n${skill}` },
+      { role: "system", content: `${SYSTEM_PROMPT}\n\n${runtimeClockContext()}\n\n--- KDB CLI SKILL.md ---\n${skill}` },
       ...this.history.list().slice(-30).map((item) => ({ role: item.role, content: item.content })),
     ]
     const cards: ResultCard[] = []
@@ -59,4 +59,11 @@ export class KdbAgent {
     }
     throw new Error("模型工具调用超过最大轮次，请缩小问题范围后重试")
   }
+}
+
+function runtimeClockContext(now = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, "0")
+  const localTime = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "系统本地时区"
+  return `桌面端当前系统时间：${localTime}（${timezone}）。处理“最近 N 天/小时”等相对时间时，必须使用 --hours（例如最近 7 天为 --hours 168），不要根据模型知识日期编造固定起止日期；CLI 会以此运行时钟计算结束时间。`
 }

@@ -20,6 +20,8 @@ export type ChatReply = {
 
 export type AppSettings = {
   theme: ThemeMode
+  /** Per-export cap applied by the desktop agent to both API and local exports. */
+  exportMaxRows: number
   deepseek: {
     apiKey: string
     baseUrl: string

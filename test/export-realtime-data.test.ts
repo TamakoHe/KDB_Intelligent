@@ -5,6 +5,7 @@ import path from "node:path"
 import test from "node:test"
 import {
   exportBatteryRealtimeData,
+  normalizeExportMaxRows,
   GEN2_BATTERY_BASE_FIELD_LABELS,
   GEN3_BATTERY_BASE_FIELD_LABELS,
   queryBatteryCommandReadiness,
@@ -85,6 +86,7 @@ test("Gen2 实时导出映射到 realtimeMsgLog 和 createTime", async () => {
     beginCreateTime: "2026-07-01 00:00:00",
     endCreateTime: "2026-07-02 00:00:00",
   })
+  assert.equal(captured.query.pageSize, 20_000)
   assert.equal(await fs.readFile(outputPath, "utf8"), "fake-xlsx")
   await fs.rm(dir, { recursive: true, force: true })
 })
@@ -108,7 +110,26 @@ test("Gen3 实时导出映射到 cycle01MsgLog 和 logTime", async () => {
     beginLogTime: "2026-07-01 00:00:00",
     endLogTime: "2026-07-02 00:00:00",
   })
+  assert.equal(captured.query.pageSize, 20_000)
   assert.equal(await fs.readFile(outputPath, "utf8"), "fake-xlsx")
+  await fs.rm(dir, { recursive: true, force: true })
+})
+
+test("导出条目上限默认 20000，且可覆盖并校验范围", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "kdb-sdk-test-"))
+  const outputPath = path.join(dir, "custom-limit.xlsx")
+  let captured: any
+  await exportBatteryRealtimeData({
+    clients: createFakeClients((_generation, request) => (captured = request)),
+    batteryId: "62413828",
+    hours: 1,
+    outputPath,
+    maxRows: 24_000,
+  })
+  assert.equal(captured.query.pageSize, 24_000)
+  assert.equal(normalizeExportMaxRows(undefined), 20_000)
+  assert.throws(() => normalizeExportMaxRows(0), /导出最大条目/)
+  assert.throws(() => normalizeExportMaxRows(100_001), /导出最大条目/)
   await fs.rm(dir, { recursive: true, force: true })
 })
 

@@ -4,6 +4,7 @@ import type { AppSettings, ThemeMode } from "../shared.js"
 
 const DEFAULT_DEEPSEEK_URL = "https://api.deepseek.com"
 const DEFAULT_MODEL = "deepseek-v4-flash"
+const DEFAULT_EXPORT_MAX_ROWS = 20_000
 
 export class SettingsStore {
   private readonly filePath: string
@@ -32,6 +33,7 @@ export class SettingsStore {
 function normalize(value: Partial<AppSettings>, defaultKdbConfigRoot: string): AppSettings {
   return {
     theme: isThemeMode(value.theme) ? value.theme : "system",
+    exportMaxRows: normalizeExportMaxRows(value.exportMaxRows),
     deepseek: {
       apiKey: value.deepseek?.apiKey?.trim() ?? "",
       baseUrl: value.deepseek?.baseUrl?.trim() || DEFAULT_DEEPSEEK_URL,
@@ -39,6 +41,12 @@ function normalize(value: Partial<AppSettings>, defaultKdbConfigRoot: string): A
     },
     kdbConfigRoot: defaultKdbConfigRoot,
   }
+}
+
+function normalizeExportMaxRows(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 100_000
+    ? value
+    : DEFAULT_EXPORT_MAX_ROWS
 }
 
 function isThemeMode(value: unknown): value is ThemeMode {

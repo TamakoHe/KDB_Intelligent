@@ -170,12 +170,13 @@ export async function exportBatteryRealtimeBatch(args: {
   end?: string
   hours?: number
   source?: DataSource
+  maxRows?: number
 }) {
   const targets = resolveBatchTargets(args.clients, args.batteryIds)
   const results = await mapConcurrent(targets, async (target) => {
     try {
       const outputPath = path.join(args.outputDir, `${target.batteryId}-realtime.xlsx`)
-      return { batteryId: target.batteryId, ok: true, result: await exportBatteryRealtimeData({ clients: args.clients, ...target, outputPath, ...(args.start !== undefined ? { start: args.start } : {}), ...(args.end !== undefined ? { end: args.end } : {}), ...(args.hours !== undefined ? { hours: args.hours } : {}), ...(args.source !== undefined ? { source: args.source } : {}) }) }
+      return { batteryId: target.batteryId, ok: true, result: await exportBatteryRealtimeData({ clients: args.clients, ...target, outputPath, ...(args.start !== undefined ? { start: args.start } : {}), ...(args.end !== undefined ? { end: args.end } : {}), ...(args.hours !== undefined ? { hours: args.hours } : {}), ...(args.source !== undefined ? { source: args.source } : {}), ...(args.maxRows !== undefined ? { maxRows: args.maxRows } : {}) }) }
     } catch (error) {
       return { batteryId: target.batteryId, ok: false, error: error instanceof Error ? error.message : String(error) }
     }

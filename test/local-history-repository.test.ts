@@ -40,11 +40,13 @@ test("本地实时历史查询使用参数化时间边界，latest 不扫描所�
     batteryId: "623b1c10",
     start: "2026-05-15 13:45:52",
     end: "2026-05-15 15:45:52",
+    maxRows: 20_000,
   })
   assert.equal(rows[0]?.batteryId, "623B1C10")
   assert.match(calls[0]!.sql, /kdb_cycle06_msg_log_623b1c10/)
-  assert.match(calls[0]!.sql, /`log_time` >= \? AND `log_time` <= \?/) 
-  assert.deepEqual(calls[0]!.values, ["2026-05-15 13:45:52", "2026-05-15 15:45:52"])
+  assert.match(calls[0]!.sql, /`log_time` >= \? AND `log_time` <= \?/)
+  assert.match(calls[0]!.sql, /ORDER BY `log_time` ASC LIMIT \?/)
+  assert.deepEqual(calls[0]!.values, ["2026-05-15 13:45:52", "2026-05-15 15:45:52", 20_000])
 
   await repository.listExport({ generation: "gen2", type: "latestBatteryTable", batteryId: "8f9ae708" })
   assert.match(calls[1]!.sql, /hckd_lihe_msg_log_8f9ae708/)

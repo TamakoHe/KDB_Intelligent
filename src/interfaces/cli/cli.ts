@@ -37,6 +37,7 @@ import {
 import { resolveGeneration } from "../../core/config/index.js"
 import { assertApiOnlySource, parseDataSource } from "../../core/data-source.js"
 import type { QueryObject, QueryValue } from "../../core/http/http-client.js"
+import { normalizeExportMaxRows } from "../../core/export/limits.js"
 
 const VERSION = "1.0.0"
 const EXPORT_TYPES: ExportType[] = [
@@ -140,6 +141,7 @@ function help(): string {
   --hours, -H <小时>         未传 start 时向前取多少小时，默认 24
   --output, -o <路径>        自定义 xlsx 输出路径
   --generation, -g <代际>   可选校验值：gen2 或 gen3
+  --max-rows <数量>         最多导出条目数，默认 20000（1~100000）
   --source <来源>           api（默认）、local 或 auto；local 为本地历史快照，auto 仅在 API 空数据时回退
 
 通用导出:
@@ -147,6 +149,7 @@ function help(): string {
   --query <key=value>        顶层查询参数，可重复
   --param <key=value>        params[key] 查询参数，可重复
   --start/--end/--hours      日志时间范围；Gen2 映射 createTime，Gen3 映射 logTime
+  --max-rows <数量>         最多导出条目数，默认 20000（1~100000）
   --source <来源>           api（默认）、local 或 auto
 
 全局选项:
@@ -262,6 +265,12 @@ function parseHours(value: string | undefined): number | undefined {
   return hours
 }
 
+function parseMaxRows(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined
+  const maxRows = Number(value)
+  return normalizeExportMaxRows(maxRows)
+}
+
 function parseGeneration(value: string | undefined): "gen2" | "gen3" | undefined {
   if (value === undefined || value === "auto") return undefined
   if (value === "gen2" || value === "gen3") return value
@@ -373,7 +382,7 @@ async function createClients(args: ParsedArgs) {
 }
 
 async function runRealtime(args: ParsedArgs): Promise<void> {
-  validateOptions(args, ["battery-id", "start", "end", "hours", "output", "generation", "source", "json"])
+  validateOptions(args, ["battery-id", "start", "end", "hours", "output", "generation", "source", "max-rows", "json"])
   const batteryId = requiredOption(args, "battery-id")
   const clients = await createClients(args)
   const outputPath = option(args, "output")?.trim()
@@ -382,6 +391,7 @@ async function runRealtime(args: ParsedArgs): Promise<void> {
   const hours = parseHours(option(args, "hours"))
   const generation = parseGeneration(option(args, "generation"))
   const source = parseDataSource(option(args, "source"))
+  const maxRows = parseMaxRows(option(args, "max-rows"))
   const result = await exportBatteryRealtimeData({
     clients,
     batteryId,
@@ -390,6 +400,7 @@ async function runRealtime(args: ParsedArgs): Promise<void> {
     ...(hours !== undefined ? { hours } : {}),
     ...(generation !== undefined ? { generation } : {}),
     ...(source !== undefined ? { source } : {}),
+    ...(maxRows !== undefined ? { maxRows } : {}),
     ...(outputPath ? { outputPath } : {}),
   })
   if (args.options.has("json")) {
@@ -412,6 +423,7 @@ async function runGenericExport(args: ParsedArgs, typeText: string): Promise<voi
     "end",
     "hours",
     "source",
+    "max-rows",
     "json",
   ])
   if (!EXPORT_TYPES.includes(typeText as ExportType)) {
@@ -463,6 +475,7 @@ async function runGenericExport(args: ParsedArgs, typeText: string): Promise<voi
   if (Object.keys(params).length > 0) query.params = params
   const outputPath = option(args, "output")?.trim()
   const source = parseDataSource(option(args, "source"))
+  const maxRows = parseMaxRows(option(args, "max-rows"))
   const result = await exportExcel({
     clients,
     generation,
@@ -470,6 +483,7 @@ async function runGenericExport(args: ParsedArgs, typeText: string): Promise<voi
     ...(Object.keys(query).length > 0 ? { query } : {}),
     ...(outputPath ? { outputPath } : {}),
     ...(source ? { source } : {}),
+    ...(maxRows !== undefined ? { maxRows } : {}),
   })
   if (args.options.has("json")) {
     process.stdout.write(`${JSON.stringify({ ...result, generation, exportType: type }, null, 2)}\n`)
@@ -977,13 +991,14 @@ async function runBatch(args: ParsedArgs): Promise<void> {
   }
   if (area === "export") {
     const type = args.positionals[2]
-    validateOptions(args, ["battery-id", "battery-file", "channel", "output-dir", "start", "end", "hours", "json", "source"])
+    validateOptions(args, ["battery-id", "battery-file", "channel", "output-dir", "start", "end", "hours", "max-rows", "json", "source"])
     if (type !== "realtime") throw new Error("batch export 当前仅支持 realtime")
     if (args.positionals.length > 3) throw new Error(`多余参数: ${args.positionals.slice(3).join(" ")}`)
     const outputDir = requiredOption(args, "output-dir")
     const hours = parseHours(option(args, "hours"))
     const source = parseDataSource(option(args, "source"))
-    const result = await exportBatteryRealtimeBatch({ clients, batteryIds, outputDir, ...(option(args, "start") ? { start: option(args, "start")! } : {}), ...(option(args, "end") ? { end: option(args, "end")! } : {}), ...(hours !== undefined ? { hours } : {}), ...(source ? { source } : {}) })
+    const maxRows = parseMaxRows(option(args, "max-rows"))
+    const result = await exportBatteryRealtimeBatch({ clients, batteryIds, outputDir, ...(option(args, "start") ? { start: option(args, "start")! } : {}), ...(option(args, "end") ? { end: option(args, "end")! } : {}), ...(hours !== undefined ? { hours } : {}), ...(source ? { source } : {}), ...(maxRows !== undefined ? { maxRows } : {}) })
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     return
   }

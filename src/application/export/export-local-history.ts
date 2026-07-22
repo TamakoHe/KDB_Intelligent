@@ -7,6 +7,7 @@ import type { ExportType } from "./export-excel.js"
 import { createLocalHistoryRepository, type LocalGeneration, type LocalRow } from "../../domain/local/local-history-repository.js"
 import { GEN2_BATTERY_BASE_FIELD_LABELS } from "../../domain/gen2/status/hckd-battery-base-api.js"
 import { GEN3_BATTERY_BASE_FIELD_LABELS } from "../../domain/gen3/status/kdb-battery-base-api.js"
+import { normalizeExportMaxRows } from "../../core/export/limits.js"
 
 export type LocalExportResult = {
   outputPath: string
@@ -104,11 +105,13 @@ export async function exportLocalHistory(args: {
   start?: string
   end?: string
   outputPath?: string
+  maxRows?: number
 }): Promise<LocalExportResult> {
   const repository = createLocalHistoryRepository(args.clients.config)
+  const maxRows = normalizeExportMaxRows(args.maxRows)
   const rows = args.type === "realtimeMsgLog" || args.type === "cycle01MsgLog"
-    ? await repository.listRealtime({ generation: args.generation, batteryId: args.batteryId ?? "", start: args.start ?? "0000-01-01 00:00:00", end: args.end ?? "9999-12-31 23:59:59" })
-    : await repository.listExport(args)
+    ? await repository.listRealtime({ generation: args.generation, batteryId: args.batteryId ?? "", start: args.start ?? "0000-01-01 00:00:00", end: args.end ?? "9999-12-31 23:59:59", maxRows })
+    : await repository.listExport({ ...args, maxRows })
   const outputPath = resolveOutputPath({ ...(args.outputPath ? { outputPath: args.outputPath } : {}), defaultDir: getDefaultOutputDir(args.clients.config), defaultName: defaultName(args.generation, args.type) })
   await writeWorkbook({ outputPath, generation: args.generation, type: args.type, rows })
   return { outputPath, rowCount: rows.length, source: "local" }

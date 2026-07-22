@@ -186,6 +186,8 @@ function Settings({ value, onChange, onSave, onEditConfig, onClose }: { value: A
     <label>DeepSeek Base URL<input value={value.deepseek.baseUrl} onChange={(event) => onChange({ ...value, deepseek: { ...value.deepseek, baseUrl: event.target.value } })} /></label>
     <label>模型<input value={value.deepseek.model} onChange={(event) => onChange({ ...value, deepseek: { ...value.deepseek, model: event.target.value } })} /></label>
     <label>界面颜色<select value={value.theme} onChange={(event) => onChange({ ...value, theme: event.target.value as ThemeMode })}><option value="dark">深色</option><option value="light">浅色</option><option value="system">随系统</option></select></label>
+    <label>单次导出最大条目<input type="number" min="1" max="100000" step="1000" value={value.exportMaxRows} onChange={(event) => onChange({ ...value, exportMaxRows: Number(event.target.value) })} /></label>
+    <p className="muted">默认 20,000 条，范围为 1~100,000；该限制同时作用于网页 API 与本地历史库导出。</p>
     <p className="muted">KDB 配置由应用内部管理，不读取外部项目目录。</p>
     <div className="modal-actions"><button type="button" onClick={() => { void onEditConfig() }}>编辑应用内 KDB 配置</button><button type="button" onClick={onClose}>取消</button><button type="submit">保存</button></div>
   </form></div>

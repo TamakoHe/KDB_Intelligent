@@ -32,10 +32,13 @@ export class LocalHistoryRepository {
     return rows[0] ? camelCaseRow(rows[0] as LocalRow) : null
   }
 
-  async listRealtime(args: { generation: LocalGeneration; batteryId: string; start: string; end: string }): Promise<LocalRow[]> {
+  async listRealtime(args: { generation: LocalGeneration; batteryId: string; start: string; end: string; maxRows?: number }): Promise<LocalRow[]> {
+    const limit = args.maxRows === undefined ? "" : " LIMIT ?"
+    const values: unknown[] = [args.start, args.end]
+    if (args.maxRows !== undefined) values.push(args.maxRows)
     const [rows] = await this.sql.query(
-      `SELECT * FROM ${detailTable(args.generation, args.batteryId)} WHERE \`log_time\` >= ? AND \`log_time\` <= ? ORDER BY \`log_time\` ASC`,
-      [args.start, args.end],
+      `SELECT * FROM ${detailTable(args.generation, args.batteryId)} WHERE \`log_time\` >= ? AND \`log_time\` <= ? ORDER BY \`log_time\` ASC${limit}`,
+      values,
     )
     return rows.map((row) => camelCaseRow(row as LocalRow))
   }
@@ -46,6 +49,7 @@ export class LocalHistoryRepository {
     batteryId?: string
     start?: string
     end?: string
+    maxRows?: number
   }): Promise<LocalRow[]> {
     const table = exportTable(args.generation, args.type, args.batteryId)
     if (args.type === "latestBatteryTable") {
@@ -66,7 +70,9 @@ export class LocalHistoryRepository {
     }
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : ""
     const order = isLogExport(args.type) ? " ORDER BY `log_time` ASC" : ""
-    const [rows] = await this.sql.query(`SELECT * FROM ${table}${where}${order}`, values)
+    const limit = args.maxRows === undefined ? "" : " LIMIT ?"
+    if (args.maxRows !== undefined) values.push(args.maxRows)
+    const [rows] = await this.sql.query(`SELECT * FROM ${table}${where}${order}${limit}`, values)
     return rows.map((row) => camelCaseRow(row as LocalRow))
   }
 

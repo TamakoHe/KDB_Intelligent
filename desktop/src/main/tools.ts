@@ -16,7 +16,7 @@ const cliPlanSchema = z.object({
 })
 
 const BLOCKED_OPTIONS = new Set(["--root-dir", "--battery-file", "--history-file", "--confirm"])
-const MODEL_OUTPUT_OPTIONS = new Set(["--output", "-o", "--output-dir"])
+const MODEL_OUTPUT_OPTIONS = new Set(["--output", "-o", "--output-dir", "--max-rows"])
 const TOP_LEVEL = new Set(["battery", "status", "ready", "command-ready", "command", "parameter", "mode", "batch", "export", "ota"])
 
 export const modelTools = [definition("run_kdb_cli_plan", "按 KDB CLI 技能执行一个受控命令计划。只传 kdb 后的 argv 数组，不要传 npm/node/shell。复杂需求可在一个计划内给出多个步骤；写操作只会产生预览，绝不能加入 --confirm。", cliPlanSchema)]
@@ -35,7 +35,7 @@ export async function executeTool(name: string, rawArgs: unknown, settings: AppS
   const results: CliStepResult[] = []
   const cards: ResultCard[] = []
   for (const step of parsed.data.steps) {
-    const checked = normalizeAndValidate(step, parsed.data.steps.length)
+    const checked = normalizeAndValidate(step, parsed.data.steps.length, settings.exportMaxRows)
     if (!checked.ok) {
       const result: CliStepResult = { id: step.id, purpose: step.purpose, argv: step.argv, ok: false, exitCode: -1, attempts: 0, error: checked.error }
       results.push(result)
@@ -65,7 +65,7 @@ export function cancelAction(actionId: string): void {
   pendingActions.delete(actionId)
 }
 
-function normalizeAndValidate(step: PlannedStep, totalSteps: number): { ok: true; argv: string[] } | { ok: false; error: string } {
+function normalizeAndValidate(step: PlannedStep, totalSteps: number, exportMaxRows: number): { ok: true; argv: string[] } | { ok: false; error: string } {
   const argv = stripModelOutputOptions(step.argv)
   if (!TOP_LEVEL.has(argv[0]!)) return { ok: false, error: `不允许的顶级 CLI 命令: ${argv[0]}` }
   if (argv.some((token) => token.includes("\0") || /[\r\n]/.test(token))) return { ok: false, error: "参数不能包含换行或 NUL 字符" }
@@ -80,7 +80,8 @@ function normalizeAndValidate(step: PlannedStep, totalSteps: number): { ok: true
   } else if (isExport) {
     argv.push("--output", path.join(desktopExportDirectory(), `${step.id}-${Date.now()}.xlsx`))
   }
-  if (isExport && !hasOption(argv, "--source")) argv.push("--source", "auto")
+  if ((isExport || isBatchExport) && !hasOption(argv, "--source")) argv.push("--source", "auto")
+  if (isExport || isBatchExport) argv.push("--max-rows", String(exportMaxRows))
   argv.push("--json")
   return { ok: true, argv }
 }
@@ -93,7 +94,7 @@ function stripModelOutputOptions(argv: string[]): string[] {
       index++
       continue
     }
-    if (["--output=", "--output-dir=", "-o="].some((prefix) => token.startsWith(prefix))) continue
+    if (["--output=", "--output-dir=", "-o=", "--max-rows="].some((prefix) => token.startsWith(prefix))) continue
     cleaned.push(token)
   }
   return cleaned
