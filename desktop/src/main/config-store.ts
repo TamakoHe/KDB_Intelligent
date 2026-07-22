@@ -64,7 +64,10 @@ export class ConfigStore {
       return { configured: true, ok: true, host, port, database, message: "已成功连接本地历史库（只读连通性验证）。" }
     } catch (error) {
       const code = error instanceof Error && "code" in error ? String((error as { code?: unknown }).code ?? "") : undefined
-      return { configured: true, ok: false, host, port, database, ...(code ? { errorCode: code } : {}), message: `连接失败：${messageOf(error)}` }
+      const permissionHint = code === "EHOSTUNREACH"
+        ? "。请确认系统设置 → 隐私与安全性 → 本地网络中已允许 KDB Copilot；若已允许，再检查当前网络能否访问该主机。"
+        : ""
+      return { configured: true, ok: false, host, port, database, ...(code ? { errorCode: code } : {}), message: `连接失败：${messageOf(error)}${permissionHint}` }
     }
   }
 
