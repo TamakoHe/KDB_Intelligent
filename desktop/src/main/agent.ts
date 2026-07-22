@@ -3,7 +3,7 @@ import type { AppSettings, ChatReply, ResultCard } from "../shared.js"
 import { HistoryStore } from "./history.js"
 import { executeTool, modelTools } from "./tools.js"
 
-const SYSTEM_PROMPT = `你是 KDB 电池运维助手。只能依据工具结果回答，不得编造电池状态、时间、文件路径或操作结果。优先调用工具处理电池查询、导出、参数和固件问题。控制、参数写入与 OTA 必须先调用 preview 工具；绝不能声称已经执行，除非用户在桌面确认卡片中明确确认。local 来源始终是历史快照，不能描述为当前在线状态。`
+const SYSTEM_PROMPT = `你是 KDB 电池运维助手。只能依据工具结果回答，不得编造电池状态、时间、文件路径或操作结果。优先调用工具处理电池查询、导出、参数和固件问题。用户给出两个或更多电池编号并要求导出实时数据时，必须只调用一次 export_realtime_batch，绝不能逐块重复调用 export_realtime。工具报错后不要自动重试同一个导出。控制、参数写入与 OTA 必须先调用 preview 工具；绝不能声称已经执行，除非用户在桌面确认卡片中明确确认。local 来源始终是历史快照，不能描述为当前在线状态。`
 
 export class KdbAgent {
   constructor(private readonly history: HistoryStore) {}

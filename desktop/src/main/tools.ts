@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto"
+import path from "node:path"
+import { app } from "electron"
 import { z } from "zod"
 import type { AppSettings, DataSource, ResultCard } from "../shared.js"
 import { getCore, getKdbClients } from "./kdb-core.js"
@@ -10,12 +12,14 @@ type PendingAction =
 
 const source = z.enum(["api", "local", "auto"]).optional()
 const battery = z.object({ batteryId: z.string().trim().min(1), generation: z.enum(["gen2", "gen3"]).optional(), source })
+const realtimeRange = z.object({ start: z.string().optional(), end: z.string().optional(), hours: z.number().positive().optional(), source })
 const pendingActions = new Map<string, PendingAction>()
 
 export const modelTools = [
   definition("get_battery_status", "查询一块电池的状态或本地历史快照。", battery),
   definition("get_battery_mode", "查询电池运行模式；本地来源返回历史快照。", battery),
-  definition("export_realtime", "导出指定时间范围内的实时数据 Excel。", battery.extend({ start: z.string().optional(), end: z.string().optional(), hours: z.number().positive().optional(), outputPath: z.string().optional() })),
+  definition("export_realtime", "导出一块电池指定时间范围内的实时数据 Excel。文件会保存到用户的 Documents/KDB Copilot Exports。", battery.extend({ start: z.string().optional(), end: z.string().optional(), hours: z.number().positive().optional() })),
+  definition("export_realtime_batch", "批量导出多块同代电池的实时数据。用户提到两个或以上电池编号时必须优先且只调用此工具一次。", realtimeRange.extend({ batteryIds: z.array(z.string().trim().min(1)).min(2).max(100) })),
   definition("list_parameters", "查询参数定义，可按关键字筛选；这不是读取电池当前参数值。", battery.extend({ search: z.string().optional() })),
   definition("ota_version", "查询电池当前固件版本。", battery),
   definition("list_firmwares", "查询适用于电池代际的固件列表。", battery.extend({ firmwareVersion: z.string().optional(), firmwareName: z.string().optional() })),
@@ -42,8 +46,15 @@ export async function executeTool(name: string, rawArgs: unknown, settings: AppS
       return { model: result, card: { id: randomUUID(), kind: "status", title: "电池运行模式", summary: `${result.batteryId}：${summary.workingModeText ?? "未上报"}`, data: result } }
     }
     if (name === "export_realtime") {
-      const result = await core.exportBatteryRealtimeData({ clients, ...args })
+      const batteryId = String(args.batteryId)
+      const result = await core.exportBatteryRealtimeData({ clients, ...args, outputPath: desktopExportPath(batteryId) })
       return { model: result, card: { id: randomUUID(), kind: "export", title: "实时数据已导出", summary: `${result.rowCount ?? "未知"} 条记录 · ${result.source}`, data: result } }
+    }
+    if (name === "export_realtime_batch") {
+      const batteryIds = args.batteryIds as string[]
+      const result = await core.exportBatteryRealtimeBatch({ clients, ...args, batteryIds, outputDir: desktopExportDirectory() })
+      const succeeded = result.results.filter((item: { ok: boolean }) => item.ok).length
+      return { model: result, card: { id: randomUUID(), kind: "export", title: "批量实时数据已导出", summary: `${succeeded}/${batteryIds.length} 块电池导出完成`, data: result } }
     }
     if (name === "list_parameters") {
       const result = await core.listBatteryParameters({ clients, ...args })
@@ -98,7 +109,8 @@ function schemaFor(name: string): z.ZodType {
   const schemas: Record<string, z.ZodType> = {
     get_battery_status: common,
     get_battery_mode: common,
-    export_realtime: common.extend({ start: z.string().optional(), end: z.string().optional(), hours: z.number().positive().optional(), outputPath: z.string().optional() }),
+    export_realtime: common.extend({ start: z.string().optional(), end: z.string().optional(), hours: z.number().positive().optional() }),
+    export_realtime_batch: realtimeRange.extend({ batteryIds: z.array(z.string().trim().min(1)).min(2).max(100) }),
     list_parameters: common.extend({ search: z.string().optional() }),
     ota_version: common,
     list_firmwares: common.extend({ firmwareVersion: z.string().optional(), firmwareName: z.string().optional() }),
@@ -107,6 +119,16 @@ function schemaFor(name: string): z.ZodType {
     preview_ota_start: common.extend({ firmwareId: z.string().optional(), firmwareVersion: z.string().optional(), firmwareName: z.string().optional(), allowDowngrade: z.boolean().optional() }),
   }
   return schemas[name] ?? z.never()
+}
+
+function desktopExportDirectory(): string {
+  return path.join(app.getPath("documents"), "KDB Copilot Exports")
+}
+
+function desktopExportPath(batteryId: string): string {
+  const safeBatteryId = batteryId.replace(/[^0-9a-z]/gi, "").toUpperCase() || "battery"
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-")
+  return path.join(desktopExportDirectory(), `${safeBatteryId}-realtime-${stamp}.xlsx`)
 }
 
 async function previewCommand(core: any, clients: any, args: Record<string, unknown>) {
