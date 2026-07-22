@@ -80,6 +80,7 @@ function normalizeAndValidate(step: PlannedStep, totalSteps: number): { ok: true
   } else if (isExport) {
     argv.push("--output", path.join(desktopExportDirectory(), `${step.id}-${Date.now()}.xlsx`))
   }
+  if (isExport && !hasOption(argv, "--source")) argv.push("--source", "auto")
   argv.push("--json")
   return { ok: true, argv }
 }
@@ -100,6 +101,10 @@ function stripModelOutputOptions(argv: string[]): string[] {
 
 function isBlockedOption(token: string): boolean {
   return BLOCKED_OPTIONS.has(token) || [...BLOCKED_OPTIONS].some((option) => token.startsWith(`${option}=`))
+}
+
+function hasOption(argv: string[], name: string): boolean {
+  return argv.some((token) => token === name || token.startsWith(`${name}=`))
 }
 
 function planFolderName(totalSteps: number): string {
