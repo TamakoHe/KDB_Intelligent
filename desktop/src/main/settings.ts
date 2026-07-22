@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
-import type { AppSettings } from "../shared.js"
+import type { AppSettings, ThemeMode } from "../shared.js"
 
 const DEFAULT_DEEPSEEK_URL = "https://api.deepseek.com"
 const DEFAULT_MODEL = "deepseek-v4-flash"
@@ -31,6 +31,7 @@ export class SettingsStore {
 
 function normalize(value: Partial<AppSettings>, defaultKdbConfigRoot: string): AppSettings {
   return {
+    theme: isThemeMode(value.theme) ? value.theme : "system",
     deepseek: {
       apiKey: value.deepseek?.apiKey?.trim() ?? "",
       baseUrl: value.deepseek?.baseUrl?.trim() || DEFAULT_DEEPSEEK_URL,
@@ -38,4 +39,8 @@ function normalize(value: Partial<AppSettings>, defaultKdbConfigRoot: string): A
     },
     kdbConfigRoot: defaultKdbConfigRoot,
   }
+}
+
+function isThemeMode(value: unknown): value is ThemeMode {
+  return value === "dark" || value === "light" || value === "system"
 }

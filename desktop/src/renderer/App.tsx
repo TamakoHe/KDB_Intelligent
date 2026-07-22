@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import type { AppSettings, ChatHistoryItem, KdbConfigFiles, LocalDatabaseConnectionTest, ResultCard } from "../shared"
+import type { AppSettings, ChatHistoryItem, KdbConfigFiles, LocalDatabaseConnectionTest, ResultCard, ThemeMode } from "../shared"
 
 type Message = ChatHistoryItem
 
@@ -24,6 +24,19 @@ export function App() {
       if (!loadedSettings.deepseek.apiKey) setShowSettings(true)
     })
   }, [])
+
+  useEffect(() => {
+    if (!settings) return
+    const media = window.matchMedia("(prefers-color-scheme: dark)")
+    const applyTheme = () => {
+      const resolved = settings.theme === "system" ? (media.matches ? "dark" : "light") : settings.theme
+      document.documentElement.dataset.theme = resolved
+    }
+    applyTheme()
+    if (settings.theme !== "system") return
+    media.addEventListener("change", applyTheme)
+    return () => media.removeEventListener("change", applyTheme)
+  }, [settings])
 
   async function send(event: FormEvent) {
     event.preventDefault()
@@ -172,6 +185,7 @@ function Settings({ value, onChange, onSave, onEditConfig, onClose }: { value: A
     <label>DeepSeek API Key<input value={value.deepseek.apiKey} type="password" onChange={(event) => onChange({ ...value, deepseek: { ...value.deepseek, apiKey: event.target.value } })} /></label>
     <label>DeepSeek Base URL<input value={value.deepseek.baseUrl} onChange={(event) => onChange({ ...value, deepseek: { ...value.deepseek, baseUrl: event.target.value } })} /></label>
     <label>模型<input value={value.deepseek.model} onChange={(event) => onChange({ ...value, deepseek: { ...value.deepseek, model: event.target.value } })} /></label>
+    <label>界面颜色<select value={value.theme} onChange={(event) => onChange({ ...value, theme: event.target.value as ThemeMode })}><option value="dark">深色</option><option value="light">浅色</option><option value="system">随系统</option></select></label>
     <p className="muted">KDB 配置由应用内部管理，不读取外部项目目录。</p>
     <div className="modal-actions"><button type="button" onClick={() => { void onEditConfig() }}>编辑应用内 KDB 配置</button><button type="button" onClick={onClose}>取消</button><button type="submit">保存</button></div>
   </form></div>

@@ -1,4 +1,5 @@
 export type DataSource = "api" | "local" | "auto"
+export type ThemeMode = "dark" | "light" | "system"
 
 export type ResultCard = {
   id: string
@@ -16,6 +17,7 @@ export type ChatReply = {
 }
 
 export type AppSettings = {
+  theme: ThemeMode
   deepseek: {
     apiKey: string
     baseUrl: string

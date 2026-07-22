@@ -13,3 +13,32 @@ h1, h2, h3, p { margin-top: 0; } h1 { font-size: 27px; margin-bottom: 6px; } h2 
 .card { border: 1px solid #2b405e; background: #101d30; padding: 14px; border-radius: 11px; margin-top: 12px; }.card strong { color: #cfe6ff; }.card p { margin: 7px 0 12px; color: #b6c6db; }.card.preview { border-color: #c77d29; background: #302314; }.card.error { border-color: #a84c58; background: #311a21; }.card.success { border-color: #4e9a76; background: #142a23; }.card-actions, .file-actions { display: flex; flex-wrap: wrap; gap: 8px; }.danger { background: #a65c1a; }.danger:hover { background: #c57224; } details { margin-top: 12px; color: #9cb0cb; } pre { white-space: pre-wrap; max-height: 230px; overflow: auto; font-size: 11px; background: #08111d; padding: 10px; border-radius: 6px; }
 .composer { padding: 20px 42px 30px; border-top: 1px solid #203047; display: flex; gap: 12px; }.composer textarea { flex: 1; resize: vertical; border: 1px solid #3d5475; border-radius: 11px; padding: 12px; background: #111f33; color: #edf4ff; }.composer button { align-self: end; background: #2879bd; }.composer button:hover { background: #3691dc; }.error { margin: 0 42px 12px; color: #ff9fa9; }
 .modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.55); }.settings { width: min(600px, 90vw); display: grid; gap: 13px; padding: 25px; border-radius: 14px; background: #132238; box-shadow: 0 24px 80px #000; }.settings label { display: grid; gap: 6px; color: #bccce0; }.settings input, .settings textarea { border: 1px solid #3d5475; background: #0b1626; color: white; border-radius: 8px; padding: 10px; }.settings textarea { resize: vertical; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }.config-editor { width: min(980px, 94vw); max-height: 92vh; overflow-y: auto; }.connection-result { margin: 0; padding: 10px; border-radius: 8px; font-size: 13px; }.connection-result.ok { background: #142a23; color: #a8e3c3; }.connection-result.failed { background: #311a21; color: #ffb1ba; }.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }.network-workaround { display: grid; gap: 9px; padding: 14px; border: 1px solid #a77735; border-radius: 9px; background: #302514; color: #f5d9a6; }.network-workaround p { margin: 0; color: #e5c99d; font-size: 13px; line-height: 1.5; }.network-workaround code { display: block; overflow-x: auto; padding: 10px; border-radius: 6px; background: #0b1626; color: #fff1d5; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }.network-workaround button { justify-self: start; }
+
+select { border: 1px solid #3d5475; background: #0b1626; color: white; border-radius: 8px; padding: 10px; }
+:root[data-theme="light"] { color: #1e2b3d; background: #f2f6fb; }
+:root[data-theme="light"] body { background: #f2f6fb; }
+:root[data-theme="light"] button { background: #dce6f2; color: #1e2b3d; }
+:root[data-theme="light"] button:hover { background: #c7d8eb; }
+:root[data-theme="light"] .sidebar { background: #e5edf7; border-color: #c4d2e2; }
+:root[data-theme="light"] .eyebrow { color: #246aa1; }
+:root[data-theme="light"] .muted, :root[data-theme="light"] .safety { color: #51657c; }
+:root[data-theme="light"] .chat-panel header, :root[data-theme="light"] .composer { border-color: #c9d7e6; }
+:root[data-theme="light"] .badge { background: #d5e8fa; color: #246aa1; }
+:root[data-theme="light"] .message.user { background: #d6e8fb; color: #1e2b3d; }
+:root[data-theme="light"] .empty { border-color: #9bb7d3; color: #51657c; }
+:root[data-theme="light"] .composer textarea { border-color: #aec1d5; background: #fff; color: #1e2b3d; }
+:root[data-theme="light"] .composer button { background: #2879bd; color: white; }
+:root[data-theme="light"] .card { border-color: #b6c9dc; background: #fff; }
+:root[data-theme="light"] .card strong { color: #173f64; }
+:root[data-theme="light"] .card p { color: #51657c; }
+:root[data-theme="light"] .card.preview { border-color: #d29a4e; background: #fff7e8; }
+:root[data-theme="light"] .card.error { border-color: #d68b94; background: #fff0f2; }
+:root[data-theme="light"] .card.success { border-color: #83b99f; background: #effaf4; }
+:root[data-theme="light"] .markdown code, :root[data-theme="light"] .markdown pre, :root[data-theme="light"] pre { background: #edf2f7; color: #26384d; }
+:root[data-theme="light"] .markdown th { background: #dce9f5; }
+:root[data-theme="light"] .markdown th, :root[data-theme="light"] .markdown td { border-color: #b7c9db; }
+:root[data-theme="light"] .settings { background: #fff; box-shadow: 0 24px 80px rgba(27, 50, 75, .25); }
+:root[data-theme="light"] .settings label { color: #3c526a; }
+:root[data-theme="light"] .settings input, :root[data-theme="light"] .settings textarea, :root[data-theme="light"] select { border-color: #aec1d5; background: #f8fbff; color: #1e2b3d; }
+:root[data-theme="light"] .network-workaround { background: #fff7e8; color: #76521d; }
+:root[data-theme="light"] .network-workaround p { color: #76521d; }
