@@ -15,7 +15,8 @@ const cliPlanSchema = z.object({
   steps: z.array(z.object({ id: safeStepId, purpose: z.string().trim().min(1).max(160), argv: z.array(z.string().min(1).max(300)).min(1).max(40) })).min(1).max(20),
 })
 
-const BLOCKED_OPTIONS = new Set(["--root-dir", "--output", "-o", "--output-dir", "--battery-file", "--history-file", "--confirm"])
+const BLOCKED_OPTIONS = new Set(["--root-dir", "--battery-file", "--history-file", "--confirm"])
+const MODEL_OUTPUT_OPTIONS = new Set(["--output", "-o", "--output-dir"])
 const TOP_LEVEL = new Set(["battery", "status", "ready", "command-ready", "command", "parameter", "mode", "batch", "export", "ota"])
 
 export const modelTools = [definition("run_kdb_cli_plan", "按 KDB CLI 技能执行一个受控命令计划。只传 kdb 后的 argv 数组，不要传 npm/node/shell。复杂需求可在一个计划内给出多个步骤；写操作只会产生预览，绝不能加入 --confirm。", cliPlanSchema)]
@@ -65,10 +66,10 @@ export function cancelAction(actionId: string): void {
 }
 
 function normalizeAndValidate(step: PlannedStep, totalSteps: number): { ok: true; argv: string[] } | { ok: false; error: string } {
-  const argv = [...step.argv]
+  const argv = stripModelOutputOptions(step.argv)
   if (!TOP_LEVEL.has(argv[0]!)) return { ok: false, error: `不允许的顶级 CLI 命令: ${argv[0]}` }
   if (argv.some((token) => token.includes("\0") || /[\r\n]/.test(token))) return { ok: false, error: "参数不能包含换行或 NUL 字符" }
-  if (argv.some((token) => BLOCKED_OPTIONS.has(token))) return { ok: false, error: "模型不能指定配置根目录、文件路径或确认令牌" }
+  if (argv.some((token) => isBlockedOption(token))) return { ok: false, error: "模型不能指定配置根目录、外部清单、历史文件或确认令牌" }
   if (argv.some((token) => token === "--help" || token === "-h" || token === "--version")) return { ok: false, error: "帮助与版本查询不属于业务执行计划" }
   if (argv.includes("--json")) return { ok: false, error: "--json 由桌面执行器统一附加" }
 
@@ -81,6 +82,24 @@ function normalizeAndValidate(step: PlannedStep, totalSteps: number): { ok: true
   }
   argv.push("--json")
   return { ok: true, argv }
+}
+
+function stripModelOutputOptions(argv: string[]): string[] {
+  const cleaned: string[] = []
+  for (let index = 0; index < argv.length; index++) {
+    const token = argv[index]!
+    if (MODEL_OUTPUT_OPTIONS.has(token)) {
+      index++
+      continue
+    }
+    if (["--output=", "--output-dir=", "-o="].some((prefix) => token.startsWith(prefix))) continue
+    cleaned.push(token)
+  }
+  return cleaned
+}
+
+function isBlockedOption(token: string): boolean {
+  return BLOCKED_OPTIONS.has(token) || [...BLOCKED_OPTIONS].some((option) => token.startsWith(`${option}=`))
 }
 
 function planFolderName(totalSteps: number): string {

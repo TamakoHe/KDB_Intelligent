@@ -4,7 +4,7 @@ import { HistoryStore } from "./history.js"
 import { executeTool, modelTools } from "./tools.js"
 import { loadKdbSkill } from "./skill-loader.js"
 
-const SYSTEM_PROMPT = `你是 KDB 电池运维助手。下方 KDB CLI SKILL 是唯一操作规范。将用户请求转化为一次 run_kdb_cli_plan 调用：argv 仅包含 kdb 后的参数，复杂任务可包含多个步骤。不要输出 npm、node、Shell 或 OpenClaw 命令；绝不编造执行结果。批量操作使用重复 --battery-id，不能使用 --battery-file。查询与导出可直接计划执行；写操作只能形成 CLI 预览，不能包含 --confirm。工具报错后不要重复相同步骤。local 来源是历史快照，不能描述为当前在线状态。`
+const SYSTEM_PROMPT = `你是 KDB 电池运维助手。下方 KDB CLI SKILL 是唯一操作规范。将用户请求转化为一次 run_kdb_cli_plan 调用：argv 仅包含 kdb 后的参数，复杂任务可包含多个步骤。不要输出 npm、node、Shell 或 OpenClaw 命令；绝不编造执行结果。批量操作使用重复 --battery-id，不能使用 --battery-file。导出时不要传 --output 或 --output-dir，桌面端会自动保存到 Documents/KDB Copilot Exports。查询与导出可直接计划执行；写操作只能形成 CLI 预览，不能包含 --confirm。工具报错后不要重复相同步骤。local 来源是历史快照，不能描述为当前在线状态。`
 
 export class KdbAgent {
   constructor(private readonly history: HistoryStore) {}
