@@ -3,8 +3,10 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import test from "node:test"
+import ExcelJS from "exceljs"
 import {
   exportBatteryRealtimeData,
+  exportExcel,
   normalizeExportMaxRows,
   GEN2_BATTERY_BASE_FIELD_LABELS,
   GEN3_BATTERY_BASE_FIELD_LABELS,
@@ -14,13 +16,24 @@ import {
   type KdbApiClients,
 } from "../src/index.js"
 
-function createFakeClients(onRequest: (generation: "gen2" | "gen3", request: any) => void): KdbApiClients {
+function createFakeClients(onRequest: (generation: "gen2" | "gen3", request: any) => unknown): KdbApiClients {
+  const workbookCache = new Map<number, ArrayBuffer>()
   const makeClient = (generation: "gen2" | "gen3") =>
     ({
       requestArrayBuffer: async (request: any) => {
-        onRequest(generation, request)
+        const requestedRows = onRequest(generation, request)
+        const rowCount = typeof requestedRows === "number" ? requestedRows : 1
+        let data = workbookCache.get(rowCount)
+        if (!data) {
+          const workbook = new ExcelJS.Workbook()
+          const sheet = workbook.addWorksheet("电池详情数据")
+          sheet.addRow(["数据时间", "电池编码"])
+          for (let index = 0; index < rowCount; index++) sheet.addRow([`2026-07-01 00:00:${String(index % 60).padStart(2, "0")}`, `ROW-${index}`])
+          data = await workbook.xlsx.writeBuffer()
+          workbookCache.set(rowCount, data)
+        }
         return {
-          data: new TextEncoder().encode("fake-xlsx").buffer,
+          data,
           status: 200,
           headers: new Headers(),
         }
@@ -86,8 +99,10 @@ test("Gen2 实时导出映射到 realtimeMsgLog 和 createTime", async () => {
     beginCreateTime: "2026-07-01 00:00:00",
     endCreateTime: "2026-07-02 00:00:00",
   })
-  assert.equal(captured.query.pageSize, 20_000)
-  assert.equal(await fs.readFile(outputPath, "utf8"), "fake-xlsx")
+  assert.equal(captured.query.pageSize, 8_000)
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.readFile(outputPath)
+  assert.equal(workbook.worksheets[0]?.rowCount, 2)
   await fs.rm(dir, { recursive: true, force: true })
 })
 
@@ -110,8 +125,10 @@ test("Gen3 实时导出映射到 cycle01MsgLog 和 logTime", async () => {
     beginLogTime: "2026-07-01 00:00:00",
     endLogTime: "2026-07-02 00:00:00",
   })
-  assert.equal(captured.query.pageSize, 20_000)
-  assert.equal(await fs.readFile(outputPath, "utf8"), "fake-xlsx")
+  assert.equal(captured.query.pageSize, 8_000)
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.readFile(outputPath)
+  assert.equal(workbook.worksheets[0]?.rowCount, 2)
   await fs.rm(dir, { recursive: true, force: true })
 })
 
@@ -126,10 +143,57 @@ test("导出条目上限默认 20000，且可覆盖并校验范围", async () =>
     outputPath,
     maxRows: 24_000,
   })
-  assert.equal(captured.query.pageSize, 24_000)
+  assert.equal(captured.query.pageSize, 8_000)
   assert.equal(normalizeExportMaxRows(undefined), 20_000)
   assert.throws(() => normalizeExportMaxRows(0), /导出最大条目/)
   assert.throws(() => normalizeExportMaxRows(100_001), /导出最大条目/)
+  await fs.rm(dir, { recursive: true, force: true })
+})
+
+test("API 单次达到 8000 条时按时间二分并合并表头一次", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "kdb-sdk-test-"))
+  const outputPath = path.join(dir, "chunked.xlsx")
+  const requests: any[] = []
+  const result = await exportExcel({
+    clients: createFakeClients((_generation, request) => {
+      requests.push(request)
+      const params = request.query.params as Record<string, string>
+      const start = Date.parse(params.beginLogTime.replace(" ", "T"))
+      const end = Date.parse(params.endLogTime.replace(" ", "T"))
+      return end - start > 2 * 24 * 60 * 60 * 1000 ? 8_000 : 100
+    }),
+    generation: "gen3",
+    type: "cycle01MsgLog",
+    query: { batteryId: "62413828", params: { beginLogTime: "2026-07-01 00:00:00", endLogTime: "2026-07-08 00:00:00" } },
+    outputPath,
+    maxRows: 20_000,
+  })
+  assert.ok(requests.length > 1)
+  assert.ok(requests.every((request) => request.query.pageSize <= 8_000))
+  assert.equal(result.rowCount, 400)
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.readFile(outputPath)
+  assert.equal(workbook.worksheets[0]?.rowCount, 401)
+  await fs.rm(dir, { recursive: true, force: true })
+})
+
+test("总上限小于 API 单次上限时截断合并结果", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "kdb-sdk-test-"))
+  const outputPath = path.join(dir, "capped.xlsx")
+  let calls = 0
+  const result = await exportExcel({
+    clients: createFakeClients(() => { calls++; return 8_000 }),
+    generation: "gen3",
+    type: "cycle01MsgLog",
+    query: { batteryId: "62413828", params: { beginLogTime: "2026-07-01 00:00:00", endLogTime: "2026-07-01 01:00:00" } },
+    outputPath,
+    maxRows: 150,
+  })
+  assert.equal(calls, 1)
+  assert.equal(result.rowCount, 150)
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.readFile(outputPath)
+  assert.equal(workbook.worksheets[0]?.rowCount, 151)
   await fs.rm(dir, { recursive: true, force: true })
 })
 

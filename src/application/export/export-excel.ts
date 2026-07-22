@@ -17,6 +17,7 @@ import { exportGen3StatusCommandLog } from "../../domain/gen3/logs/kdb-status-co
 import { exportLocalHistory } from "./export-local-history.js"
 import type { DataSource } from "../../core/data-source.js"
 import { normalizeExportMaxRows } from "../../core/export/limits.js"
+import { formatLocalDateTime, parseDateTime } from "../../core/date-time.js"
 
 export type Generation = "gen2" | "gen3"
 
@@ -30,6 +31,9 @@ export type ExportType =
   | "reportBatteryLog"
   | "cycle01MsgLog"
   | "statusCommandLog"
+
+/** The website export endpoints cap one response at 8000 data rows. */
+export const API_EXPORT_MAX_ROWS = 8_000
 
 function nowCompact(): string {
   const d = new Date()
@@ -69,44 +73,23 @@ export async function exportExcel(args: {
     return exportLocalHistory({ clients: args.clients, generation: args.generation, type: args.type, ...(batteryId ? { batteryId } : {}), ...(start ? { start } : {}), ...(end ? { end } : {}), ...(args.outputPath ? { outputPath: args.outputPath } : {}), maxRows })
   }
 
-  // The website export endpoints use pageSize as their export-row cap.
-  const exportQuery: QueryObject = { ...(args.query ?? {}), pageSize: maxRows }
-
   const client = args.clients.getClient(args.generation)
-  let res: { data: ArrayBuffer; status: number; headers: Headers }
-
-  if (args.generation === "gen2") {
-    if (args.type === "batteryBase") res = await exportGen2BatteryBase(client, exportQuery)
-    else if (args.type === "latestBatteryTable") res = await exportGen2LatestBatteryTable(client, exportQuery)
-    else if (args.type === "nettyLog") res = await exportGen2NettyLog(client, exportQuery)
-    else if (args.type === "statusNettyLog") res = await exportGen2StatusNettyLog(client, exportQuery)
-    else if (args.type === "bluetoothCommandTasks") res = await exportGen2BluetoothCommandTasks(client, exportQuery)
-    else if (args.type === "realtimeMsgLog") res = await exportGen2RealtimeMsgLog(client, exportQuery)
-    else throw new Error(`[gen2] 不支持导出类型: ${args.type}`)
-  } else {
-    if (args.type === "batteryBase") res = await exportGen3BatteryBase(client, exportQuery)
-    else if (args.type === "reportBatteryLog") res = await exportGen3ReportBatteryLog(client, exportQuery)
-    else if (args.type === "cycle01MsgLog") res = await exportGen3Cycle01MsgLog(client, exportQuery)
-    else if (args.type === "statusCommandLog") res = await exportGen3StatusCommandLog(client, exportQuery)
-    else throw new Error(`[gen3] 不支持导出类型: ${args.type}`)
-  }
-
-  const disposition = res.headers.get("content-disposition")
-  const filename = parseFilenameFromContentDisposition(disposition)
+  const chunks = await requestApiChunks({ client, generation: args.generation, type: args.type, query: args.query ?? {}, maxRows, ...(start ? { start } : {}), ...(end ? { end } : {}) })
+  const filename = parseFilenameFromContentDisposition(chunks[0]!.headers.get("content-disposition"))
 
   const finalOutputPath =
     args.outputPath?.trim() ||
     path.join(defaultDir, filename ?? defaultName(args.generation, args.type))
 
-  await saveArrayBuffer({ outputPath: finalOutputPath, data: res.data })
-  // Keep the default API path byte-for-byte compatible with previous callers.
-  // Workbook inspection is only needed to decide whether `auto` should fall
-  // back to the local historical source.
+  const rowCount = Math.min(maxRows, chunks.reduce((total, chunk) => total + chunk.rowCount, 0))
+  const data = chunks.length === 1 && chunks[0]!.rowCount <= maxRows
+    ? chunks[0]!.data
+    : await mergeApiWorkbooks(chunks.map((chunk) => chunk.data), maxRows)
+  await saveArrayBuffer({ outputPath: finalOutputPath, data })
   if (source !== "auto") {
-    return filename ? { outputPath: finalOutputPath, filename, source: "api" } : { outputPath: finalOutputPath, source: "api" }
+    return filename ? { outputPath: finalOutputPath, filename, source: "api", rowCount } : { outputPath: finalOutputPath, source: "api", rowCount }
   }
 
-  const rowCount = await xlsxDataRowCount(finalOutputPath)
   if (rowCount === 0) {
     const local = await exportLocalHistory({ clients: args.clients, generation: args.generation, type: args.type, ...(batteryId ? { batteryId } : {}), ...(start ? { start } : {}), ...(end ? { end } : {}), outputPath: finalOutputPath, maxRows })
     return { ...local, fallbackFrom: "api-empty" }
@@ -114,9 +97,154 @@ export async function exportExcel(args: {
   return filename ? { outputPath: finalOutputPath, filename, source: "api", rowCount } : { outputPath: finalOutputPath, source: "api", rowCount }
 }
 
-async function xlsxDataRowCount(filePath: string): Promise<number> {
+type ApiExportResponse = { data: ArrayBuffer; headers: Headers; rowCount: number }
+
+async function requestApiChunks(args: {
+  client: KdbApiClients["gen2"]
+  generation: Generation
+  type: ExportType
+  query: QueryObject
+  maxRows: number
+  start?: string
+  end?: string
+}): Promise<ApiExportResponse[]> {
+  const chunkable = Boolean(args.start && args.end && isTimeChunkable(args.type))
+  if (!chunkable) return [await requestApiChunk({ ...args, query: { ...args.query, pageSize: Math.min(API_EXPORT_MAX_ROWS, args.maxRows) } })]
+
+  const start = parseDateTime(args.start!, "开始时间")
+  const end = parseDateTime(args.end!, "结束时间")
+  const chunks: ApiExportResponse[] = []
+  await collectApiRange({ ...args, start, end, chunks, remaining: args.maxRows })
+  return chunks.length > 0 ? chunks : [await requestApiChunk({ ...args, query: { ...args.query, pageSize: Math.min(API_EXPORT_MAX_ROWS, args.maxRows) } })]
+}
+
+async function collectApiRange(args: {
+  client: KdbApiClients["gen2"]
+  generation: Generation
+  type: ExportType
+  query: QueryObject
+  maxRows: number
+  start: Date
+  end: Date
+  chunks: ApiExportResponse[]
+  remaining: number
+}): Promise<void> {
+  if (args.remaining <= 0) return
+  const pageSize = Math.min(API_EXPORT_MAX_ROWS, args.remaining)
+  const query = withTimeRange({ ...args.query, pageSize }, args.generation, args.start, args.end)
+  const chunk = await requestApiChunk({ ...args, query })
+  const capped = chunk.rowCount >= API_EXPORT_MAX_ROWS && pageSize === API_EXPORT_MAX_ROWS
+  const split = splitTimeRange(args.start, args.end)
+  if (capped && split) {
+    const before = args.chunks.length
+    await collectApiRange({ ...args, end: split.leftEnd, chunks: args.chunks, remaining: args.remaining })
+    const leftRows = args.chunks.slice(before).reduce((total, item) => total + item.rowCount, 0)
+    await collectApiRange({ ...args, start: split.rightStart, chunks: args.chunks, remaining: Math.max(0, args.remaining - leftRows) })
+    return
+  }
+  args.chunks.push(chunk)
+}
+
+function isTimeChunkable(type: ExportType): boolean {
+  return type === "nettyLog" || type === "statusNettyLog" || type === "bluetoothCommandTasks" || type === "realtimeMsgLog" || type === "reportBatteryLog" || type === "cycle01MsgLog" || type === "statusCommandLog"
+}
+
+function withTimeRange(query: QueryObject, generation: Generation, start: Date, end: Date): QueryObject {
+  const params = { ...((query.params ?? {}) as Record<string, string | number | boolean | null | undefined>) }
+  const startKey = generation === "gen2" ? "beginCreateTime" : "beginLogTime"
+  const endKey = generation === "gen2" ? "endCreateTime" : "endLogTime"
+  params[startKey] = formatLocalDateTime(start)
+  params[endKey] = formatLocalDateTime(end)
+  return { ...query, params }
+}
+
+function splitTimeRange(start: Date, end: Date): { leftEnd: Date; rightStart: Date } | undefined {
+  const totalSeconds = Math.floor((end.getTime() - start.getTime()) / 1000)
+  if (totalSeconds < 2) return undefined
+  const leftSeconds = Math.max(1, Math.floor(totalSeconds / 2))
+  const rightStart = new Date(start.getTime() + leftSeconds * 1000)
+  const leftEnd = new Date(rightStart.getTime() - 1000)
+  return { leftEnd, rightStart }
+}
+
+async function requestApiChunk(args: {
+  client: KdbApiClients["gen2"]
+  generation: Generation
+  type: ExportType
+  query: QueryObject
+}): Promise<ApiExportResponse> {
+  let res: { data: ArrayBuffer; status: number; headers: Headers }
+  if (args.generation === "gen2") {
+    if (args.type === "batteryBase") res = await exportGen2BatteryBase(args.client, args.query)
+    else if (args.type === "latestBatteryTable") res = await exportGen2LatestBatteryTable(args.client, args.query)
+    else if (args.type === "nettyLog") res = await exportGen2NettyLog(args.client, args.query)
+    else if (args.type === "statusNettyLog") res = await exportGen2StatusNettyLog(args.client, args.query)
+    else if (args.type === "bluetoothCommandTasks") res = await exportGen2BluetoothCommandTasks(args.client, args.query)
+    else if (args.type === "realtimeMsgLog") res = await exportGen2RealtimeMsgLog(args.client, args.query)
+    else throw new Error(`[gen2] 不支持导出类型: ${args.type}`)
+  } else {
+    if (args.type === "batteryBase") res = await exportGen3BatteryBase(args.client, args.query)
+    else if (args.type === "reportBatteryLog") res = await exportGen3ReportBatteryLog(args.client, args.query)
+    else if (args.type === "cycle01MsgLog") res = await exportGen3Cycle01MsgLog(args.client, args.query)
+    else if (args.type === "statusCommandLog") res = await exportGen3StatusCommandLog(args.client, args.query)
+    else throw new Error(`[gen3] 不支持导出类型: ${args.type}`)
+  }
+  return { data: res.data, headers: res.headers, rowCount: await xlsxDataRowCount(res.data) }
+}
+
+async function xlsxDataRowCount(data: ArrayBuffer): Promise<number> {
   const workbook = new ExcelJS.Workbook()
-  await workbook.xlsx.readFile(filePath)
+  await workbook.xlsx.load(data)
   const sheet = workbook.worksheets[0]
   return sheet ? Math.max(0, sheet.rowCount - 1) : 0
+}
+
+async function mergeApiWorkbooks(buffers: ArrayBuffer[], maxRows: number): Promise<ArrayBuffer> {
+  const firstSource = new ExcelJS.Workbook()
+  await firstSource.xlsx.load(buffers[0]!)
+  const output = new ExcelJS.Workbook()
+  const targetSheets = new Map<string, ExcelJS.Worksheet>()
+  let remaining = maxRows
+  for (const sourceSheet of firstSource.worksheets) {
+    const targetSheet = createMergedSheet(output, sourceSheet)
+    targetSheets.set(sourceSheet.name, targetSheet)
+    const rowsToCopy = sourceSheet === firstSource.worksheets[0] ? Math.min(maxRows, Math.max(0, sourceSheet.rowCount - 1)) : Math.max(0, sourceSheet.rowCount - 1)
+    copyDataRows(sourceSheet, targetSheet, rowsToCopy)
+    if (sourceSheet === firstSource.worksheets[0]) remaining -= rowsToCopy
+  }
+  for (const buffer of buffers.slice(1)) {
+    if (remaining <= 0) break
+    const source = new ExcelJS.Workbook()
+    await source.xlsx.load(buffer)
+    const sourceSheet = source.worksheets[0]
+    if (!sourceSheet) continue
+    const targetSheet = targetSheets.get(sourceSheet.name) ?? createMergedSheet(output, sourceSheet)
+    targetSheets.set(sourceSheet.name, targetSheet)
+    const rowsToCopy = Math.min(remaining, Math.max(0, sourceSheet.rowCount - 1))
+    copyDataRows(sourceSheet, targetSheet, rowsToCopy)
+    remaining -= rowsToCopy
+  }
+  return output.xlsx.writeBuffer()
+}
+
+function createMergedSheet(workbook: ExcelJS.Workbook, source: ExcelJS.Worksheet): ExcelJS.Worksheet {
+  const target = workbook.addWorksheet(source.name)
+  target.columns = source.columns.map((column) => ({
+    ...(column.header !== undefined ? { header: column.header } : {}),
+    ...(column.key !== undefined ? { key: column.key } : {}),
+    ...(column.width !== undefined ? { width: column.width } : {}),
+  }))
+  const sourceHeader = source.getRow(1)
+  const targetHeader = target.getRow(1)
+  targetHeader.values = sourceHeader.values
+  sourceHeader.eachCell((cell, index) => {
+    targetHeader.getCell(index).style = { ...cell.style }
+  })
+  return target
+}
+
+function copyDataRows(source: ExcelJS.Worksheet, target: ExcelJS.Worksheet, count: number): void {
+  for (let rowNumber = 2; rowNumber <= count + 1; rowNumber++) {
+    target.addRow(source.getRow(rowNumber).values as unknown[])
+  }
 }
