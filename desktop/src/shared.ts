@@ -65,6 +65,6 @@ export type KdbDesktopApi = {
   history: { list(): Promise<ChatHistoryItem[]>; clear(): Promise<void> }
   chat: { send(text: string): Promise<ChatReply> }
   action: { confirm(actionId: string): Promise<ResultCard>; cancel(actionId: string): Promise<void> }
-  file: { reveal(path: string): Promise<void> }
+  file: { reveal(path: string): Promise<void>; open(path: string): Promise<void> }
   clipboard: { writeText(value: string): Promise<void> }
 }

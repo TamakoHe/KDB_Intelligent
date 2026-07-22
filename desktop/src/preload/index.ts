@@ -20,7 +20,10 @@ const api: KdbDesktopApi = {
     confirm: (actionId: string) => ipcRenderer.invoke("action:confirm", actionId),
     cancel: (actionId: string) => ipcRenderer.invoke("action:cancel", actionId),
   },
-  file: { reveal: (filePath: string) => ipcRenderer.invoke("file:reveal", filePath) },
+  file: {
+    reveal: (filePath: string) => ipcRenderer.invoke("file:reveal", filePath),
+    open: (filePath: string) => ipcRenderer.invoke("file:open", filePath),
+  },
   clipboard: { writeText: (value: string) => ipcRenderer.invoke("clipboard:write", value) },
 }
 

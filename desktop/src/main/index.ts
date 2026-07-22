@@ -55,6 +55,7 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle("action:cancel", (_event, actionId: string) => cancelAction(actionId))
   ipcMain.handle("file:reveal", (_event, filePath: string) => shell.showItemInFolder(filePath))
+  ipcMain.handle("file:open", (_event, filePath: string) => shell.openPath(filePath))
   ipcMain.handle("clipboard:write", (_event, value: string) => clipboard.writeText(value))
 
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })

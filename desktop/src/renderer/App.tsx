@@ -131,10 +131,12 @@ export function App() {
 
 function Card({ card, busy, onConfirm }: { card: ResultCard; busy: boolean; onConfirm(card: ResultCard): Promise<void> }) {
   const data = card.data ?? {}
-  const outputPath = typeof data.outputPath === "string" ? data.outputPath : undefined
+  const outputPaths = collectOutputPaths(data)
+  const outputDir = typeof data.outputDir === "string" ? data.outputDir : undefined
   return <section className={`card ${card.kind}`}>
     <strong>{card.title}</strong><Markdown content={card.summary} />
-    {outputPath && <button onClick={() => { void window.kdb.file.reveal(outputPath) }}>显示导出文件</button>}
+    {outputPaths.length > 0 && <div className="file-actions">{outputPaths.map((outputPath) => <button key={outputPath} onClick={() => { void window.kdb.file.open(outputPath) }}>打开 {fileName(outputPath)}</button>)}</div>}
+    {outputDir && <button onClick={() => { void window.kdb.file.reveal(outputDir) }}>打开导出文件夹</button>}
     {card.actionId && <div className="card-actions"><button className="danger" disabled={busy} onClick={() => { void onConfirm(card) }}>{card.actionLabel ?? "确认执行"}</button><button disabled={busy} onClick={() => { window.kdb.action.cancel(card.actionId!); }}>取消</button></div>}
     {Object.keys(data).length > 0 && <details><summary>查看原始结果</summary><pre>{JSON.stringify(data, null, 2)}</pre></details>}
   </section>
@@ -142,6 +144,26 @@ function Card({ card, busy, onConfirm }: { card: ResultCard; busy: boolean; onCo
 
 function Markdown({ content }: { content: string }) {
   return <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown></div>
+}
+
+function collectOutputPaths(value: unknown): string[] {
+  const paths = new Set<string>()
+  function visit(item: unknown): void {
+    if (!item || typeof item !== "object") return
+    if (Array.isArray(item)) {
+      item.forEach(visit)
+      return
+    }
+    const record = item as Record<string, unknown>
+    if (typeof record.outputPath === "string") paths.add(record.outputPath)
+    Object.values(record).forEach(visit)
+  }
+  visit(value)
+  return [...paths]
+}
+
+function fileName(filePath: string): string {
+  return filePath.split(/[\\/]/).pop() || "文件"
 }
 
 function Settings({ value, onChange, onSave, onEditConfig, onClose }: { value: AppSettings; onChange(value: AppSettings): void; onSave(event: FormEvent): Promise<void>; onEditConfig(): Promise<void>; onClose(): void }) {
