@@ -51,6 +51,7 @@
           "!undici-types{,/**/*}"
         ]
       },
+      { "from": "../SKILL.md", "to": "kdb-core/SKILL.md" },
       { "from": "../config/kdb.toml", "to": "kdb-core/config/kdb.toml" },
       { "from": "../config/kdb.local.example.toml", "to": "kdb-core/config/kdb.local.example.toml" }
     ],

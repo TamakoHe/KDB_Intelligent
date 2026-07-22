@@ -373,7 +373,7 @@ async function createClients(args: ParsedArgs) {
 }
 
 async function runRealtime(args: ParsedArgs): Promise<void> {
-  validateOptions(args, ["battery-id", "start", "end", "hours", "output", "generation", "source"])
+  validateOptions(args, ["battery-id", "start", "end", "hours", "output", "generation", "source", "json"])
   const batteryId = requiredOption(args, "battery-id")
   const clients = await createClients(args)
   const outputPath = option(args, "output")?.trim()
@@ -392,9 +392,13 @@ async function runRealtime(args: ParsedArgs): Promise<void> {
     ...(source !== undefined ? { source } : {}),
     ...(outputPath ? { outputPath } : {}),
   })
-  process.stdout.write(
-    `导出完成\n代际: ${result.generation}\n来源: ${result.source}\n时间: ${result.start} ~ ${result.end}\n记录数: ${result.rowCount ?? "未知"}\n文件: ${result.outputPath}${result.fallbackFrom ? "\n回退原因: API 返回空数据" : ""}\n`,
-  )
+  if (args.options.has("json")) {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+  } else {
+    process.stdout.write(
+      `导出完成\n代际: ${result.generation}\n来源: ${result.source}\n时间: ${result.start} ~ ${result.end}\n记录数: ${result.rowCount ?? "未知"}\n文件: ${result.outputPath}${result.fallbackFrom ? "\n回退原因: API 返回空数据" : ""}\n`,
+    )
+  }
 }
 
 async function runGenericExport(args: ParsedArgs, typeText: string): Promise<void> {
@@ -408,6 +412,7 @@ async function runGenericExport(args: ParsedArgs, typeText: string): Promise<voi
     "end",
     "hours",
     "source",
+    "json",
   ])
   if (!EXPORT_TYPES.includes(typeText as ExportType)) {
     throw new Error(`未知导出类型 ${typeText}，可选值: ${EXPORT_TYPES.join(", ")}`)
@@ -466,7 +471,11 @@ async function runGenericExport(args: ParsedArgs, typeText: string): Promise<voi
     ...(outputPath ? { outputPath } : {}),
     ...(source ? { source } : {}),
   })
-  process.stdout.write(`导出完成\n代际: ${generation}\n类型: ${type}\n来源: ${result.source}\n记录数: ${result.rowCount ?? "未知"}\n文件: ${result.outputPath}${result.fallbackFrom ? "\n回退原因: API 返回空数据" : ""}\n`)
+  if (args.options.has("json")) {
+    process.stdout.write(`${JSON.stringify({ ...result, generation, exportType: type }, null, 2)}\n`)
+  } else {
+    process.stdout.write(`导出完成\n代际: ${generation}\n类型: ${type}\n来源: ${result.source}\n记录数: ${result.rowCount ?? "未知"}\n文件: ${result.outputPath}${result.fallbackFrom ? "\n回退原因: API 返回空数据" : ""}\n`)
+  }
 }
 
 async function runStatus(args: ParsedArgs, concise = false): Promise<void> {

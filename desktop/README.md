@@ -2,6 +2,8 @@
 
 独立于根目录 CLI 的 Electron + React 桌面应用。
 
+安装版内置已编译的 KDB CLI 与 `SKILL.md`。DeepSeek 只会生成受控的 KDB CLI 参数计划，由应用无 Shell 地执行；用户无需安装 OpenClaw、Node 或 npm。
+
 ```bash
 cd desktop
 npm install

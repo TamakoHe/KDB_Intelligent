@@ -1,164 +1,162 @@
 import { randomUUID } from "node:crypto"
+import { spawn } from "node:child_process"
 import path from "node:path"
 import { app } from "electron"
 import { z } from "zod"
-import type { AppSettings, DataSource, ResultCard } from "../shared.js"
-import { getCore, getKdbClients } from "./kdb-core.js"
+import type { AppSettings, ResultCard } from "../shared.js"
 
-type PendingAction =
-  | { kind: "command"; confirmationToken: string; args: Record<string, unknown> }
-  | { kind: "parameter"; confirmationToken: string; args: Record<string, unknown> }
-  | { kind: "ota"; confirmationToken: string; args: Record<string, unknown> }
+type PlannedStep = { id: string; purpose: string; argv: string[] }
+type PendingAction = { argv: string[]; confirmationToken: string }
+type CliStepResult = { id: string; purpose: string; argv: string[]; ok: boolean; exitCode: number; data?: unknown; error?: string }
 
-const source = z.enum(["api", "local", "auto"]).optional()
-const battery = z.object({ batteryId: z.string().trim().min(1), generation: z.enum(["gen2", "gen3"]).optional(), source })
-const realtimeRange = z.object({ start: z.string().optional(), end: z.string().optional(), hours: z.number().positive().optional(), source })
 const pendingActions = new Map<string, PendingAction>()
+const safeStepId = z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/)
+const cliPlanSchema = z.object({
+  steps: z.array(z.object({ id: safeStepId, purpose: z.string().trim().min(1).max(160), argv: z.array(z.string().min(1).max(300)).min(1).max(40) })).min(1).max(20),
+})
 
-export const modelTools = [
-  definition("get_battery_status", "查询一块电池的状态或本地历史快照。", battery),
-  definition("get_battery_mode", "查询电池运行模式；本地来源返回历史快照。", battery),
-  definition("export_realtime", "导出一块电池指定时间范围内的实时数据 Excel。文件会保存到用户的 Documents/KDB Copilot Exports。", battery.extend({ start: z.string().optional(), end: z.string().optional(), hours: z.number().positive().optional() })),
-  definition("export_realtime_batch", "批量导出多块同代电池的实时数据。用户提到两个或以上电池编号时必须优先且只调用此工具一次。", realtimeRange.extend({ batteryIds: z.array(z.string().trim().min(1)).min(2).max(100) })),
-  definition("list_parameters", "查询参数定义，可按关键字筛选；这不是读取电池当前参数值。", battery.extend({ search: z.string().optional() })),
-  definition("ota_version", "查询电池当前固件版本。", battery),
-  definition("list_firmwares", "查询适用于电池代际的固件列表。", battery.extend({ firmwareVersion: z.string().optional(), firmwareName: z.string().optional() })),
-  definition("preview_command", "预览一条电池控制命令，不会执行。", battery.extend({ command: z.string().min(1), channel: z.enum(["4g", "bluetooth"]).default("4g"), value: z.string().optional() })),
-  definition("preview_parameter_write", "预览参数写入，不会执行。", battery.extend({ selector: z.string().min(1), value: z.string(), channel: z.enum(["4g", "bluetooth"]).default("4g"), currentValue: z.string().optional() })),
-  definition("preview_ota_start", "预览单电池 OTA 启动，不会执行。", battery.extend({ firmwareId: z.string().optional(), firmwareVersion: z.string().optional(), firmwareName: z.string().optional(), allowDowngrade: z.boolean().optional() })),
-]
+const BLOCKED_OPTIONS = new Set(["--root-dir", "--output", "-o", "--output-dir", "--battery-file", "--history-file", "--confirm"])
+const TOP_LEVEL = new Set(["battery", "status", "ready", "command-ready", "command", "parameter", "mode", "batch", "export", "ota"])
 
-export async function executeTool(name: string, rawArgs: unknown, settings: AppSettings): Promise<{ model: unknown; card?: ResultCard }> {
-  const parsed = schemaFor(name).safeParse(rawArgs)
-  if (!parsed.success) return { model: { ok: false, error: `工具参数无效: ${parsed.error.issues.map((item) => item.message).join("；")}` }, card: errorCard("参数无效", "模型提供的工具参数未通过本地校验。") }
-  const args = parsed.data as Record<string, unknown>
-  const core = await getCore()
-  const clients = await getKdbClients(settings)
+export const modelTools = [definition("run_kdb_cli_plan", "按 KDB CLI 技能执行一个受控命令计划。只传 kdb 后的 argv 数组，不要传 npm/node/shell。复杂需求可在一个计划内给出多个步骤；写操作只会产生预览，绝不能加入 --confirm。", cliPlanSchema)]
 
-  try {
-    if (name === "get_battery_status") {
-      const result = await core.queryBatteryStatusById({ clients, ...args })
-      return { model: result, card: statusCard(result) }
-    }
-    if (name === "get_battery_mode") {
-      const result = await core.queryBatteryStatusById({ clients, ...args })
-      const summary = result.summary ?? {}
-      return { model: result, card: { id: randomUUID(), kind: "status", title: "电池运行模式", summary: `${result.batteryId}：${summary.workingModeText ?? "未上报"}`, data: result } }
-    }
-    if (name === "export_realtime") {
-      const batteryId = String(args.batteryId)
-      const result = await core.exportBatteryRealtimeData({ clients, ...args, outputPath: desktopExportPath(batteryId) })
-      return { model: result, card: { id: randomUUID(), kind: "export", title: "实时数据已导出", summary: `${result.rowCount ?? "未知"} 条记录 · ${result.source}`, data: result } }
-    }
-    if (name === "export_realtime_batch") {
-      const batteryIds = args.batteryIds as string[]
-      const result = await core.exportBatteryRealtimeBatch({ clients, ...args, batteryIds, outputDir: desktopExportDirectory() })
-      const succeeded = result.results.filter((item: { ok: boolean }) => item.ok).length
-      return { model: result, card: { id: randomUUID(), kind: "export", title: "批量实时数据已导出", summary: `${succeeded}/${batteryIds.length} 块电池导出完成`, data: result } }
-    }
-    if (name === "list_parameters") {
-      const result = await core.listBatteryParameters({ clients, ...args })
-      return { model: result, card: { id: randomUUID(), kind: "data", title: "参数定义", summary: `共 ${result.total} 项 · ${result.source}`, data: result } }
-    }
-    if (name === "ota_version") {
-      const result = await core.queryOtaVersion({ clients, ...args })
-      return { model: result, card: { id: randomUUID(), kind: "data", title: "当前固件版本", summary: result.currentVersion ?? "未找到版本", data: result } }
-    }
-    if (name === "list_firmwares") {
-      const result = await core.listOtaFirmware({ clients, ...args })
-      return { model: result, card: { id: randomUUID(), kind: "data", title: "固件列表", summary: `共 ${result.total} 条 · ${result.source}`, data: result } }
-    }
-    if (name === "preview_command") return previewCommand(core, clients, args)
-    if (name === "preview_parameter_write") return previewParameter(core, clients, args)
-    if (name === "preview_ota_start") return previewOta(core, clients, args)
-    return { model: { ok: false, error: `未实现工具 ${name}` } }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return { model: { ok: false, error: message }, card: errorCard("KDB 操作失败", message) }
+export async function executeTool(name: string, rawArgs: unknown, settings: AppSettings): Promise<{ model: unknown; cards: ResultCard[] }> {
+  if (name !== "run_kdb_cli_plan") return toolError("未知工具", `不允许的工具: ${name}`)
+  const parsed = cliPlanSchema.safeParse(rawArgs)
+  if (!parsed.success) return toolError("命令计划无效", parsed.error.issues.map((item) => item.message).join("；"))
+
+  const duplicateIds = new Set<string>()
+  for (const step of parsed.data.steps) {
+    if (duplicateIds.has(step.id)) return toolError("命令计划无效", `步骤 ID 重复: ${step.id}`)
+    duplicateIds.add(step.id)
   }
+
+  const results: CliStepResult[] = []
+  const cards: ResultCard[] = []
+  for (const step of parsed.data.steps) {
+    const checked = normalizeAndValidate(step, parsed.data.steps.length)
+    if (!checked.ok) {
+      const result: CliStepResult = { id: step.id, purpose: step.purpose, argv: step.argv, ok: false, exitCode: -1, error: checked.error }
+      results.push(result)
+      cards.push(errorCard("KDB 命令计划被拒绝", `${step.id}：${checked.error}`))
+      continue
+    }
+    const result = await runCliStep({ ...step, argv: checked.argv }, settings)
+    results.push(result)
+    cards.push(cardForStep(result, settings))
+  }
+
+  const succeeded = results.filter((result) => result.ok).length
+  cards.unshift({ id: randomUUID(), kind: succeeded === results.length ? "success" : "data", title: "KDB CLI 计划完成", summary: `${succeeded}/${results.length} 个步骤成功；每一步均由内置 CLI 执行。`, data: { results: results.map(redactConfirmationToken) } })
+  return { model: { results: results.map(redactConfirmationToken) }, cards }
 }
 
 export async function confirmAction(actionId: string, settings: AppSettings): Promise<ResultCard> {
   const action = pendingActions.get(actionId)
   if (!action) return errorCard("操作已失效", "未找到该预览操作；请重新发起请求。")
-  const core = await getCore()
-  const clients = await getKdbClients(settings)
-  try {
-    const result = action.kind === "command"
-      ? await core.controlBatteryCommand({ clients, ...action.args, confirmationToken: action.confirmationToken })
-      : action.kind === "parameter"
-        ? await core.writeBatteryParameter({ clients, ...action.args, confirmationToken: action.confirmationToken })
-        : await core.startOtaUpgrade({ clients, ...action.args, confirmationToken: action.confirmationToken })
-    pendingActions.delete(actionId)
-    return { id: randomUUID(), kind: "success", title: "操作已提交", summary: "后台已接受本次确认操作；请继续查询状态或回执验证设备效果。", data: result }
-  } catch (error) {
-    return errorCard("确认操作失败", error instanceof Error ? error.message : String(error))
-  }
+  const result = await runCliStep({ id: actionId, purpose: "用户确认执行", argv: [...action.argv, "--confirm", action.confirmationToken] }, settings, true)
+  if (!result.ok) return errorCard("确认操作失败", result.error ?? "CLI 未返回成功结果")
+  pendingActions.delete(actionId)
+  return { id: randomUUID(), kind: "success", title: "操作已提交", summary: "内置 CLI 已执行确认操作；请继续查询状态或回执验证设备效果。", data: result.data as Record<string, unknown> }
 }
 
 export function cancelAction(actionId: string): void {
   pendingActions.delete(actionId)
 }
 
-function definition(name: string, description: string, schema: z.ZodType): Record<string, unknown> {
-  return { type: "function", function: { name, description, parameters: z.toJSONSchema(schema), strict: false } }
+function normalizeAndValidate(step: PlannedStep, totalSteps: number): { ok: true; argv: string[] } | { ok: false; error: string } {
+  const argv = [...step.argv]
+  if (!TOP_LEVEL.has(argv[0]!)) return { ok: false, error: `不允许的顶级 CLI 命令: ${argv[0]}` }
+  if (argv.some((token) => token.includes("\0") || /[\r\n]/.test(token))) return { ok: false, error: "参数不能包含换行或 NUL 字符" }
+  if (argv.some((token) => BLOCKED_OPTIONS.has(token))) return { ok: false, error: "模型不能指定配置根目录、文件路径或确认令牌" }
+  if (argv.some((token) => token === "--help" || token === "-h" || token === "--version")) return { ok: false, error: "帮助与版本查询不属于业务执行计划" }
+  if (argv.includes("--json")) return { ok: false, error: "--json 由桌面执行器统一附加" }
+
+  const isBatchExport = argv[0] === "batch" && argv[1] === "export" && argv[2] === "realtime"
+  const isExport = argv[0] === "export" || (argv[0] === "battery" && argv[1] === "export")
+  if (isBatchExport) {
+    argv.push("--output-dir", path.join(desktopExportDirectory(), planFolderName(totalSteps)))
+  } else if (isExport) {
+    argv.push("--output", path.join(desktopExportDirectory(), `${step.id}-${Date.now()}.xlsx`))
+  }
+  argv.push("--json")
+  return { ok: true, argv }
 }
 
-function schemaFor(name: string): z.ZodType {
-  const common = battery
-  const schemas: Record<string, z.ZodType> = {
-    get_battery_status: common,
-    get_battery_mode: common,
-    export_realtime: common.extend({ start: z.string().optional(), end: z.string().optional(), hours: z.number().positive().optional() }),
-    export_realtime_batch: realtimeRange.extend({ batteryIds: z.array(z.string().trim().min(1)).min(2).max(100) }),
-    list_parameters: common.extend({ search: z.string().optional() }),
-    ota_version: common,
-    list_firmwares: common.extend({ firmwareVersion: z.string().optional(), firmwareName: z.string().optional() }),
-    preview_command: common.extend({ command: z.string().min(1), channel: z.enum(["4g", "bluetooth"]).default("4g"), value: z.string().optional() }),
-    preview_parameter_write: common.extend({ selector: z.string().min(1), value: z.string(), channel: z.enum(["4g", "bluetooth"]).default("4g"), currentValue: z.string().optional() }),
-    preview_ota_start: common.extend({ firmwareId: z.string().optional(), firmwareVersion: z.string().optional(), firmwareName: z.string().optional(), allowDowngrade: z.boolean().optional() }),
-  }
-  return schemas[name] ?? z.never()
+function planFolderName(totalSteps: number): string {
+  return `batch-${new Date().toISOString().replace(/[:.]/g, "-")}-${totalSteps}`
 }
 
 function desktopExportDirectory(): string {
   return path.join(app.getPath("documents"), "KDB Copilot Exports")
 }
 
-function desktopExportPath(batteryId: string): string {
-  const safeBatteryId = batteryId.replace(/[^0-9a-z]/gi, "").toUpperCase() || "battery"
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-")
-  return path.join(desktopExportDirectory(), `${safeBatteryId}-realtime-${stamp}.xlsx`)
+function cliEntry(): string {
+  if (app.isPackaged) return path.join(process.resourcesPath, "kdb-core", "interfaces", "cli", "cli.js")
+  return path.resolve(app.getAppPath(), "..", "dist", "interfaces", "cli", "cli.js")
 }
 
-async function previewCommand(core: any, clients: any, args: Record<string, unknown>) {
-  const result = await core.controlBatteryCommand({ clients, ...args })
-  return previewResult("command", result, args, "命令预览", "确认后向后台提交控制命令。")
+async function runCliStep(step: PlannedStep, settings: AppSettings, confirmed = false): Promise<CliStepResult> {
+  const argv = [...step.argv, "--root-dir", settings.kdbConfigRoot]
+  const execution = await spawnCli(argv)
+  const data = parseJson(execution.stdout)
+  if (execution.exitCode !== 0) return { id: step.id, purpose: step.purpose, argv: step.argv, ok: false, exitCode: execution.exitCode, error: execution.stderr.trim() || execution.stdout.trim() || "CLI 执行失败", ...(data !== undefined ? { data } : {}) }
+  return { id: step.id, purpose: step.purpose, argv: step.argv, ok: true, exitCode: 0, ...(data !== undefined ? { data } : {}), ...(confirmed ? { confirmed: true } : {}) } as CliStepResult
 }
 
-async function previewParameter(core: any, clients: any, args: Record<string, unknown>) {
-  const result = await core.writeBatteryParameter({ clients, ...args })
-  return previewResult("parameter", result, args, "参数写入预览", "确认后写入参数；请核对旧值和新值。")
+function spawnCli(argv: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cliEntry(), ...argv], {
+      cwd: app.getPath("userData"),
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      shell: false,
+      windowsHide: true,
+    })
+    let stdout = ""
+    let stderr = ""
+    const timeout = setTimeout(() => child.kill(), 120_000)
+    child.stdout.on("data", (chunk) => { stdout += String(chunk) })
+    child.stderr.on("data", (chunk) => { stderr += String(chunk) })
+    child.once("error", (error) => { clearTimeout(timeout); reject(error) })
+    child.once("close", (code) => { clearTimeout(timeout); resolve({ exitCode: code ?? 1, stdout, stderr }) })
+  })
 }
 
-async function previewOta(core: any, clients: any, args: Record<string, unknown>) {
-  const result = await core.startOtaUpgrade({ clients, ...args })
-  return previewResult("ota", result, args, "OTA 启动预览", "确认后会修改推送状态并发起 OTA。")
+function parseJson(text: string): unknown | undefined {
+  const trimmed = text.trim()
+  if (!trimmed) return undefined
+  try { return JSON.parse(trimmed) } catch { return { rawOutput: trimmed } }
 }
 
-function previewResult(kind: PendingAction["kind"], result: any, args: Record<string, unknown>, title: string, summary: string) {
-  if (!result.confirmationToken) return { model: result, card: { id: randomUUID(), kind: "data" as const, title, summary: result.message ?? "操作未产生可确认预览。", data: result } }
-  const actionId = randomUUID()
-  pendingActions.set(actionId, { kind, confirmationToken: result.confirmationToken, args })
-  return { model: { ...result, confirmationToken: "[已由桌面端保管]", actionId }, card: { id: randomUUID(), kind: "preview" as const, title, summary, data: result, actionId, actionLabel: "确认执行" } }
+function cardForStep(result: CliStepResult, settings: AppSettings): ResultCard {
+  if (!result.ok) return errorCard("KDB CLI 操作失败", `${result.id}：${result.error}`)
+  const data = (result.data && typeof result.data === "object" ? result.data : {}) as Record<string, unknown>
+  const token = typeof data.confirmationToken === "string" ? data.confirmationToken : undefined
+  if (token) {
+    const actionId = randomUUID()
+    const argv = result.argv.filter((token) => token !== "--json")
+    pendingActions.set(actionId, { argv, confirmationToken: token })
+    return { id: randomUUID(), kind: "preview", title: "CLI 操作预览", summary: `${result.purpose}。确认后才会执行写操作。`, data: { ...data, confirmationToken: "[已由桌面端保管]" }, actionId, actionLabel: "确认执行" }
+  }
+  const outputPath = typeof data.outputPath === "string" ? data.outputPath : undefined
+  const source = typeof data.source === "string" ? ` · ${data.source}` : ""
+  const rowCount = data.rowCount === undefined ? "" : ` · ${data.rowCount} 条`
+  return { id: randomUUID(), kind: outputPath ? "export" : "data", title: "KDB CLI 操作完成", summary: `${result.purpose}${source}${rowCount}`, data }
 }
 
-function statusCard(result: any): ResultCard {
-  const source = result.source ?? "api"
-  const historical = result.isHistorical ? ` · 历史快照 ${result.asOf ?? ""}` : ""
-  return { id: randomUUID(), kind: "status", title: "电池状态", summary: `${result.batteryId} · ${result.found ? "已找到" : "未找到"} · ${source}${historical}`, data: result }
+function toolError(title: string, summary: string): { model: unknown; cards: ResultCard[] } {
+  return { model: { ok: false, error: summary }, cards: [errorCard(title, summary)] }
+}
+
+function redactConfirmationToken(result: CliStepResult): CliStepResult {
+  if (!result.data || typeof result.data !== "object" || !("confirmationToken" in result.data)) return result
+  return { ...result, data: { ...(result.data as Record<string, unknown>), confirmationToken: "[已由桌面端保管]" } }
 }
 
 function errorCard(title: string, summary: string): ResultCard {
   return { id: randomUUID(), kind: "error", title, summary }
+}
+
+function definition(name: string, description: string, schema: z.ZodType): Record<string, unknown> {
+  return { type: "function", function: { name, description, parameters: z.toJSONSchema(schema), strict: false } }
 }

@@ -2,8 +2,9 @@ import OpenAI from "openai"
 import type { AppSettings, ChatReply, ResultCard } from "../shared.js"
 import { HistoryStore } from "./history.js"
 import { executeTool, modelTools } from "./tools.js"
+import { loadKdbSkill } from "./skill-loader.js"
 
-const SYSTEM_PROMPT = `你是 KDB 电池运维助手。只能依据工具结果回答，不得编造电池状态、时间、文件路径或操作结果。优先调用工具处理电池查询、导出、参数和固件问题。用户给出两个或更多电池编号并要求导出实时数据时，必须只调用一次 export_realtime_batch，绝不能逐块重复调用 export_realtime。工具报错后不要自动重试同一个导出。控制、参数写入与 OTA 必须先调用 preview 工具；绝不能声称已经执行，除非用户在桌面确认卡片中明确确认。local 来源始终是历史快照，不能描述为当前在线状态。`
+const SYSTEM_PROMPT = `你是 KDB 电池运维助手。下方 KDB CLI SKILL 是唯一操作规范。将用户请求转化为一次 run_kdb_cli_plan 调用：argv 仅包含 kdb 后的参数，复杂任务可包含多个步骤。不要输出 npm、node、Shell 或 OpenClaw 命令；绝不编造执行结果。批量操作使用重复 --battery-id，不能使用 --battery-file。查询与导出可直接计划执行；写操作只能形成 CLI 预览，不能包含 --confirm。工具报错后不要重复相同步骤。local 来源是历史快照，不能描述为当前在线状态。`
 
 export class KdbAgent {
   constructor(private readonly history: HistoryStore) {}
@@ -12,8 +13,9 @@ export class KdbAgent {
     if (!settings.deepseek.apiKey) throw new Error("请先在设置中填写 DeepSeek API Key")
     this.history.append("user", text)
     const client = new OpenAI({ apiKey: settings.deepseek.apiKey, baseURL: settings.deepseek.baseUrl, dangerouslyAllowBrowser: false })
+    const skill = await loadKdbSkill()
     const messages: any[] = [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: `${SYSTEM_PROMPT}\n\n--- KDB CLI SKILL.md ---\n${skill}` },
       ...this.history.list().slice(-30).map((item) => ({ role: item.role, content: item.content })),
     ]
     const cards: ResultCard[] = []
@@ -32,7 +34,7 @@ export class KdbAgent {
         let rawArgs: unknown
         try { rawArgs = JSON.parse(call.function.arguments) } catch { rawArgs = {} }
         const result = await executeTool(call.function.name, rawArgs, settings)
-        if (result.card) cards.push(result.card)
+        cards.push(...result.cards)
         messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result.model) })
       }
     }
