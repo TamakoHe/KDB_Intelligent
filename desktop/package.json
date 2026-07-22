@@ -1,6 +1,6 @@
 {
   "name": "kdb-copilot-desktop",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "private": true,
   "description": "KDB Copilot desktop application",
   "type": "module",
@@ -17,6 +17,7 @@
     "@iarna/toml": "^3.0.0",
     "mysql2": "^3.23.1",
     "openai": "4.104.0",
+    "quickjs-emscripten": "^0.31.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",

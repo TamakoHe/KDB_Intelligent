@@ -5,7 +5,7 @@ import { ConfigStore } from "./config-store.js"
 import { HistoryStore } from "./history.js"
 import { closeKdbCore } from "./kdb-core.js"
 import { SettingsStore } from "./settings.js"
-import { cancelAction, confirmAction } from "./tools.js"
+import { cancelAction, confirmAction, runAnalysis } from "./tools.js"
 import type { AppSettings } from "../shared.js"
 
 let mainWindow: BrowserWindow | undefined
@@ -26,7 +26,9 @@ function createWindow(): void {
   else mainWindow.loadFile(join(__dirname, "../renderer/index.html"))
 }
 
-app.whenReady().then(async () => {
+if (process.argv.includes("--analysis-worker")) {
+  void import("./analysis-worker.js")
+} else app.whenReady().then(async () => {
   const userData = app.getPath("userData")
   const templateRoot = app.isPackaged ? join(process.resourcesPath, "kdb-core") : resolve(app.getAppPath(), "..")
   configStore = new ConfigStore(userData, templateRoot)
@@ -53,6 +55,11 @@ app.whenReady().then(async () => {
     history.append("assistant", result.summary, [result])
     return result
   })
+  ipcMain.handle("action:runAnalysis", async (_event, actionId: string) => {
+    const result = await runAnalysis(actionId, await settings.get())
+    history.append("assistant", result.summary, [result])
+    return result
+  })
   ipcMain.handle("action:cancel", (_event, actionId: string) => cancelAction(actionId))
   ipcMain.handle("file:reveal", (_event, filePath: string) => shell.showItemInFolder(filePath))
   ipcMain.handle("file:open", (_event, filePath: string) => shell.openPath(filePath))
@@ -61,7 +68,7 @@ app.whenReady().then(async () => {
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
 
-app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit() })
+app.on("window-all-closed", () => { if (!process.argv.includes("--analysis-worker") && process.platform !== "darwin") app.quit() })
 app.on("before-quit", async () => {
   history?.close()
   await closeKdbCore()

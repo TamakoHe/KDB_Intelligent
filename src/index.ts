@@ -32,6 +32,7 @@ export { type DataSource, type QueryOrigin } from "./core/data-source.js"
 export { LocalHistoryRepository, createLocalHistoryRepository, closeLocalHistoryRepositories, normalizeBatteryId, detailTable } from "./domain/local/local-history-repository.js"
 export { exportLocalHistory } from "./application/export/export-local-history.js"
 export { DEFAULT_EXPORT_MAX_ROWS, MAX_EXPORT_MAX_ROWS, normalizeExportMaxRows } from "./core/export/limits.js"
+export { listAnalysisBatteries, listAnalysisHistory, type AnalysisFilter, type AnalysisFilterOperator, type AnalysisGeneration, type AnalysisReadResult } from "./application/analysis/analysis-data.js"
 import * as path from 'path';
 import { fileURLToPath } from "url"
 const __filename = fileURLToPath(import.meta.url)

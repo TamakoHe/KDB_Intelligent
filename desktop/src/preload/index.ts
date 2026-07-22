@@ -18,6 +18,7 @@ const api: KdbDesktopApi = {
   chat: { send: (text: string) => ipcRenderer.invoke("chat:send", text) },
   action: {
     confirm: (actionId: string) => ipcRenderer.invoke("action:confirm", actionId),
+    runAnalysis: (actionId: string) => ipcRenderer.invoke("action:runAnalysis", actionId),
     cancel: (actionId: string) => ipcRenderer.invoke("action:cancel", actionId),
   },
   file: {

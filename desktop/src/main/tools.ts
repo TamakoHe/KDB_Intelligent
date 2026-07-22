@@ -4,6 +4,8 @@ import path from "node:path"
 import { app } from "electron"
 import { z } from "zod"
 import type { AppSettings, ResultCard } from "../shared.js"
+import { analysisRequestSchema } from "./analysis-contract.js"
+import { cancelAnalysisAction, createAnalysisPreview, runAnalysisAction } from "./analysis-host.js"
 
 type PlannedStep = { id: string; purpose: string; argv: string[] }
 type PendingAction = { argv: string[]; confirmationToken: string }
@@ -19,9 +21,22 @@ const BLOCKED_OPTIONS = new Set(["--root-dir", "--battery-file", "--history-file
 const MODEL_OUTPUT_OPTIONS = new Set(["--output", "-o", "--output-dir", "--max-rows"])
 const TOP_LEVEL = new Set(["battery", "status", "ready", "command-ready", "command", "parameter", "mode", "batch", "export", "ota"])
 
-export const modelTools = [definition("run_kdb_cli_plan", "按 KDB CLI 技能执行一个受控命令计划。只传 kdb 后的 argv 数组，不要传 npm/node/shell。复杂需求可在一个计划内给出多个步骤；写操作只会产生预览，绝不能加入 --confirm。", cliPlanSchema)]
+export const modelTools = [
+  definition("run_kdb_cli_plan", "按 KDB CLI 技能执行一个受控命令计划。只传 kdb 后的 argv 数组，不要传 npm/node/shell。复杂需求可在一个计划内给出多个步骤；写操作只会产生预览，绝不能加入 --confirm。", cliPlanSchema),
+  definition("run_kdb_analysis", "为动态筛选和跨电池只读分析生成受限 JavaScript 预览。脚本必须定义 async function main(kdb)，只能调用受控 kdb.read/kdb.export API；不要生成 SQL、Shell、Node、npm、OpenClaw 或文件路径。桌面端会显示脚本并等待用户点击运行分析。", analysisRequestSchema),
+]
 
 export async function executeTool(name: string, rawArgs: unknown, settings: AppSettings): Promise<{ model: unknown; cards: ResultCard[] }> {
+  if (name === "run_kdb_analysis") {
+    const parsed = analysisRequestSchema.safeParse(rawArgs)
+    if (!parsed.success) return toolError("高级分析请求无效", parsed.error.issues.map((item) => item.message).join("；"))
+    try {
+      const preview = createAnalysisPreview(parsed.data)
+      return { model: { phase: "preview", actionId: preview.actionId, purpose: parsed.data.purpose, source: parsed.data.source, permissions: parsed.data.permissions }, cards: [preview.card] }
+    } catch (error) {
+      return toolError("高级分析被拒绝", error instanceof Error ? error.message : String(error))
+    }
+  }
   if (name !== "run_kdb_cli_plan") return toolError("未知工具", `不允许的工具: ${name}`)
   const parsed = cliPlanSchema.safeParse(rawArgs)
   if (!parsed.success) return toolError("命令计划无效", parsed.error.issues.map((item) => item.message).join("；"))
@@ -61,8 +76,13 @@ export async function confirmAction(actionId: string, settings: AppSettings): Pr
   return { id: randomUUID(), kind: "success", title: "操作已提交", summary: "内置 CLI 已执行确认操作；请继续查询状态或回执验证设备效果。", data: result.data as Record<string, unknown> }
 }
 
+export async function runAnalysis(actionId: string, settings: AppSettings): Promise<ResultCard> {
+  return runAnalysisAction(actionId, settings)
+}
+
 export function cancelAction(actionId: string): void {
   pendingActions.delete(actionId)
+  cancelAnalysisAction(actionId)
 }
 
 function normalizeAndValidate(step: PlannedStep, totalSteps: number, exportMaxRows: number): { ok: true; argv: string[] } | { ok: false; error: string } {

@@ -4,6 +4,8 @@ import type { ExportType } from "../../application/export/export-excel.js"
 
 export type LocalGeneration = "gen2" | "gen3"
 export type LocalRow = Record<string, unknown>
+export type LocalFilterOperator = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "contains" | "in"
+export type LocalFilter = { field: string; operator: LocalFilterOperator; value: string | number | boolean | Array<string | number> }
 
 export interface LocalSqlExecutor {
   query(sql: string, values?: unknown[]): Promise<[RowDataPacket[], unknown]>
@@ -25,6 +27,31 @@ export class LocalHistoryRepository {
     return rows[0] ? camelCaseRow(rows[0] as LocalRow) : null
   }
 
+  async listBatteryBase(args: { generation: LocalGeneration; filters?: LocalFilter[]; start?: string; end?: string; limit: number }): Promise<LocalRow[]> {
+    const conditions: string[] = []
+    const values: unknown[] = []
+    for (const filter of args.filters ?? []) {
+      const column = baseFilterColumn(args.generation, filter.field)
+      if (!column) throw new Error(`本地高级分析不支持基础表字段 ${filter.field}`)
+      appendFilter(conditions, values, column, filter)
+    }
+    if (args.start) {
+      conditions.push("`update_time` >= ?")
+      values.push(args.start)
+    }
+    if (args.end) {
+      conditions.push("`update_time` <= ?")
+      values.push(args.end)
+    }
+    values.push(args.limit)
+    const where = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : ""
+    const [rows] = await this.sql.query(
+      `SELECT * FROM ${baseTable(args.generation)}${where} ORDER BY \`update_time\` DESC LIMIT ?`,
+      values,
+    )
+    return rows.map((row) => camelCaseRow(row as LocalRow))
+  }
+
   async getLatestRealtime(generation: LocalGeneration, batteryId: string): Promise<LocalRow | null> {
     const [rows] = await this.sql.query(
       `SELECT * FROM ${detailTable(generation, batteryId)} ORDER BY \`log_time\` DESC LIMIT 1`,
@@ -32,12 +59,18 @@ export class LocalHistoryRepository {
     return rows[0] ? camelCaseRow(rows[0] as LocalRow) : null
   }
 
-  async listRealtime(args: { generation: LocalGeneration; batteryId: string; start: string; end: string; maxRows?: number }): Promise<LocalRow[]> {
-    const limit = args.maxRows === undefined ? "" : " LIMIT ?"
+  async listRealtime(args: { generation: LocalGeneration; batteryId: string; start: string; end: string; maxRows?: number; filters?: LocalFilter[] }): Promise<LocalRow[]> {
+    const conditions = ["`log_time` >= ?", "`log_time` <= ?"]
     const values: unknown[] = [args.start, args.end]
+    for (const filter of args.filters ?? []) {
+      const column = detailFilterColumn(filter.field)
+      if (!column) throw new Error(`本地高级分析不支持历史字段 ${filter.field}`)
+      appendFilter(conditions, values, column, filter)
+    }
+    const limit = args.maxRows === undefined ? "" : " LIMIT ?"
     if (args.maxRows !== undefined) values.push(args.maxRows)
     const [rows] = await this.sql.query(
-      `SELECT * FROM ${detailTable(args.generation, args.batteryId)} WHERE \`log_time\` >= ? AND \`log_time\` <= ? ORDER BY \`log_time\` ASC${limit}`,
+      `SELECT * FROM ${detailTable(args.generation, args.batteryId)} WHERE ${conditions.join(" AND ")} ORDER BY \`log_time\` ASC${limit}`,
       values,
     )
     return rows.map((row) => camelCaseRow(row as LocalRow))
@@ -185,6 +218,58 @@ function exportTable(generation: LocalGeneration, type: ExportType, batteryId?: 
     if (type === "statusCommandLog") return "`kadianbao`.`kdb_status_command_log`"
   }
   throw new Error(`${generation} 本地历史库不支持导出类型 ${type}`)
+}
+
+const BASE_FILTER_FIELDS: Record<LocalGeneration, Record<string, string>> = {
+  gen2: {
+    batteryId: "battery_id", serialNumber: "serial_number", batteryDataId: "battery_data_id", batteryType: "battery_type", batteryStatus: "battery_status", lte4gStatus: "lte4g_status", bluetoothStatus: "bluetooth_status",
+    batteryVersion: "battery_version", firmwareVersion: "battery_version", warrantyStatus: "warranty_status", agentName: "agent_name", batteryModelName: "battery_model_name",
+    batteryLabel: "battery_label", useTime: "use_time", storageTime: "storage_time", deliveryTime: "delivery_time", jwProvince: "jw_province", jwCity: "jw_city", jwArea: "jw_area", jwVillage: "jw_village", updateTime: "update_time", createTime: "create_time",
+  },
+  gen3: {
+    batteryId: "battery_id", serialNumber: "serial_number", batteryDataId: "battery_data_id", batteryType: "battery_type", batteryStatus: "battery_status", faultStatus: "fault_status", chargeDischargeStatus: "charge_discharge_status",
+    lte4gStatus: "lte4g_status", bluetoothStatus: "bluetooth_status", appVersion: "app_version", warrantyStatus: "warranty_status",
+    firmwareVersion: "app_version", agentName: "agent_name", batteryModelName: "battery_model_name", batteryLabel: "battery_label", useTime: "use_time", storageTime: "storage_time", deliveryTime: "delivery_time", jwProvince: "jw_province", jwCity: "jw_city", jwArea: "jw_area", jwVillage: "jw_village", updateTime: "update_time", createTime: "create_time",
+  },
+}
+
+function baseFilterColumn(generation: LocalGeneration, field: string): string | undefined {
+  const column = BASE_FILTER_FIELDS[generation][field]
+  return column ? `\`${column}\`` : undefined
+}
+
+const DETAIL_FILTER_FIELDS = new Set([
+  "batteryId", "logTime", "faultStatus", "chargeDischargeStatus", "current", "totalBatteryVoltage", "residualElectricQuantity",
+  "cellTemperature", "boxTemperature", "mosTemperature", "ptcTemperature1", "ptcTemperature2", "dischargeMosTemperature",
+  "chargeMosTemperature", "heatingFilmTemperature", "motherboardTemperature", "positivePoleTemperature", "negativePoleTemperature",
+  "workingModeStatus", "systemOperatingStatus", "batteryStatus", "msgId", "msgType", "msgStatus",
+])
+
+function detailFilterColumn(field: string): string | undefined {
+  if (!DETAIL_FILTER_FIELDS.has(field)) return undefined
+  return `\`${camelToSnake(field)}\``
+}
+
+function camelToSnake(value: string): string {
+  return value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
+}
+
+function appendFilter(conditions: string[], values: unknown[], column: string, filter: LocalFilter): void {
+  if (filter.operator === "in") {
+    if (!Array.isArray(filter.value) || filter.value.length === 0 || filter.value.length > 100) throw new Error("in 筛选值必须是 1~100 项数组")
+    conditions.push(`${column} IN (${filter.value.map(() => "?").join(", ")})`)
+    values.push(...filter.value)
+    return
+  }
+  if (filter.operator === "contains") {
+    if (typeof filter.value !== "string") throw new Error("contains 筛选值必须是字符串")
+    conditions.push(`${column} LIKE ?`)
+    values.push(`%${filter.value}%`)
+    return
+  }
+  const operators: Record<Exclude<LocalFilterOperator, "in" | "contains">, string> = { eq: "=", neq: "<>", gt: ">", gte: ">=", lt: "<", lte: "<=" }
+  conditions.push(`${column} ${operators[filter.operator]} ?`)
+  values.push(filter.value)
 }
 
 function isLogExport(type: ExportType): boolean {

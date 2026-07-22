@@ -3,7 +3,7 @@ export type ThemeMode = "dark" | "light" | "system"
 
 export type ResultCard = {
   id: string
-  kind: "status" | "export" | "preview" | "success" | "error" | "data"
+  kind: "status" | "export" | "preview" | "analysis-preview" | "analysis" | "success" | "error" | "data"
   title: string
   summary: string
   data?: Record<string, unknown>
@@ -17,6 +17,8 @@ export type ChatReply = {
   text: string
   cards: ResultCard[]
 }
+
+export type AnalysisActionResult = ResultCard
 
 export type AppSettings = {
   theme: ThemeMode
@@ -70,7 +72,7 @@ export type KdbDesktopApi = {
   }
   history: { list(): Promise<ChatHistoryItem[]>; clear(): Promise<void> }
   chat: { send(text: string): Promise<ChatReply> }
-  action: { confirm(actionId: string): Promise<ResultCard>; cancel(actionId: string): Promise<void> }
+  action: { confirm(actionId: string): Promise<ResultCard>; runAnalysis(actionId: string): Promise<ResultCard>; cancel(actionId: string): Promise<void> }
   file: { reveal(path: string): Promise<void>; open(path: string): Promise<void> }
   clipboard: { writeText(value: string): Promise<void> }
 }

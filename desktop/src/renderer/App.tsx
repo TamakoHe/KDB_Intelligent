@@ -69,6 +69,19 @@ export function App() {
     }
   }
 
+  async function runAnalysis(card: ResultCard) {
+    if (!card.actionId) return
+    setBusy(true)
+    try {
+      const result = await window.kdb.action.runAnalysis(card.actionId)
+      setMessages((current) => [...current, { ...localMessage("assistant", result.summary), cards: [result] }])
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function saveSettings(event: FormEvent) {
     event.preventDefault()
     if (!settings) return
@@ -127,7 +140,7 @@ export function App() {
         {messages.length === 0 && <div className="empty"><h3>可以这样问</h3><p>“查询 623B1C10 的状态”</p><p>“导出它在 2026-05-15 13:45 到 15:45 的历史数据，API 为空就查本地”</p><p>“预览锁电模式，不要立即执行”</p></div>}
         {messages.map((message) => <article className={`message ${message.role}`} key={message.id}>
           {message.role === "assistant" ? <Markdown content={message.content} /> : <p>{message.content}</p>}
-          {message.cards?.map((card) => <Card key={card.id} card={card} busy={busy} onConfirm={confirm} />)}
+          {message.cards?.map((card) => <Card key={card.id} card={card} busy={busy} onConfirm={confirm} onRunAnalysis={runAnalysis} />)}
         </article>)}
         {busy && <div className="thinking">正在查询和整理结果…</div>}
       </div>
@@ -142,17 +155,29 @@ export function App() {
   </main>
 }
 
-function Card({ card, busy, onConfirm }: { card: ResultCard; busy: boolean; onConfirm(card: ResultCard): Promise<void> }) {
+function Card({ card, busy, onConfirm, onRunAnalysis }: { card: ResultCard; busy: boolean; onConfirm(card: ResultCard): Promise<void>; onRunAnalysis(card: ResultCard): Promise<void> }) {
   const data = card.data ?? {}
   const outputPaths = collectOutputPaths(data)
   const outputDir = typeof data.outputDir === "string" ? data.outputDir : undefined
   return <section className={`card ${card.kind}`}>
     <strong>{card.title}</strong><Markdown content={card.summary} />
+    {card.kind === "analysis-preview" && <AnalysisPreview data={data} />}
     {outputPaths.length > 0 && <div className="file-actions">{outputPaths.map((outputPath) => <button key={outputPath} onClick={() => { void window.kdb.file.open(outputPath) }}>打开 {fileName(outputPath)}</button>)}</div>}
     {outputDir && <button onClick={() => { void window.kdb.file.reveal(outputDir) }}>打开导出文件夹</button>}
-    {card.actionId && <div className="card-actions"><button className="danger" disabled={busy} onClick={() => { void onConfirm(card) }}>{card.actionLabel ?? "确认执行"}</button><button disabled={busy} onClick={() => { window.kdb.action.cancel(card.actionId!); }}>取消</button></div>}
+    {card.actionId && card.kind !== "analysis-preview" && <div className="card-actions"><button className="danger" disabled={busy} onClick={() => { void onConfirm(card) }}>{card.actionLabel ?? "确认执行"}</button><button disabled={busy} onClick={() => { window.kdb.action.cancel(card.actionId!); }}>取消</button></div>}
+    {card.kind === "analysis-preview" && card.actionId && <div className="card-actions"><button className="danger" disabled={busy} onClick={() => { void onRunAnalysis(card) }}>{card.actionLabel ?? "运行分析"}</button><button disabled={busy} onClick={() => { window.kdb.action.cancel(card.actionId!); }}>取消</button></div>}
     {Object.keys(data).length > 0 && <details><summary>查看原始结果</summary><pre>{JSON.stringify(data, null, 2)}</pre></details>}
   </section>
+}
+
+function AnalysisPreview({ data }: { data: Record<string, unknown> }) {
+  const script = typeof data.script === "string" ? data.script : ""
+  const permissions = Array.isArray(data.permissions) ? data.permissions.filter((value): value is string => typeof value === "string") : []
+  return <div className="analysis-preview">
+    {permissions.length > 0 && <p className="muted">权限：{permissions.join("、")}</p>}
+    {typeof data.source === "string" && <p className="muted">数据源：{data.source}（API 优先，空结果才回退本地）</p>}
+    {script && <details open><summary>查看分析脚本</summary><pre><code>{script}</code></pre></details>}
+  </div>
 }
 
 function Markdown({ content }: { content: string }) {

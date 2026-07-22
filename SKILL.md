@@ -107,6 +107,23 @@ Batch targets must be repeated explicit `--battery-id <id>` options or a local `
 
 Do not describe any of these as “device definitely executed” unless a subsequent state or parameter read confirms the requested outcome.
 
+## Desktop advanced read-only analysis
+
+The desktop app also exposes a separate `run_kdb_analysis` tool for requests that cannot be expressed by the normal CLI, such as discovering all batteries matching a historical fault and then exporting selected targets. This is not an OpenClaw tool and it is not a replacement for the CLI.
+
+The generated script must define `async function main(kdb)` and may only call these host-owned APIs:
+
+```js
+const batteries = await kdb.read.batteries({ source: "auto", filters: [{ field: "faultStatus", operator: "eq", value: 108 }], limit: 2000 })
+const latest = await kdb.read.latestStatus({ batteryIds: batteries.rows.map((row) => row.batteryId).filter(Boolean) })
+const history = await kdb.read.history({ batteryId: "623B1C10", generation: "gen3", source: "auto", start: "2026-05-01 00:00:00", end: "2026-05-15 00:00:00", limit: 20000 })
+return { matches: batteries.rows, latest: latest.rows, historyRows: history.rows.length }
+```
+
+Only read and export permissions are available: `read.batteryBase`, `read.latestStatus`, `read.history`, and `export.realtime`. Never generate SQL, `require`, imports, Node modules, file paths, network calls, shell commands, control commands, parameter writes, OTA calls, or confirmation tokens. The desktop app displays the script, permissions, source and limits before the user starts it; do not ask the user to reply “确认”.
+
+The host enforces a 32 KB script limit, 200 calls, 2,000 batteries, 20,000 rows, 10 MB result size and a 120-second run limit. `source: auto` calls the API first and uses the local archive only after a successful empty API response. API errors never fall back. Local results are historical snapshots. The local host never scans all per-battery history tables implicitly; if a query needs an unsupported global scan, ask for explicit battery IDs.
+
 ## Fault status field descriptions
 
 When presenting `FAULT_STATUS_DESC` in a response, translate it as `故障状态` and use the mapped Chinese description for the status code; do not expose the internal field name as the user-facing label.
