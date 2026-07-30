@@ -6,6 +6,7 @@ export type LocalGeneration = "gen2" | "gen3"
 export type LocalRow = Record<string, unknown>
 export type LocalFilterOperator = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "contains" | "in"
 export type LocalFilter = { field: string; operator: LocalFilterOperator; value: string | number | boolean | Array<string | number> }
+export type LocalHistoryTable = { schema: string; table: string; generation: LocalGeneration; batteryId: string }
 
 export interface LocalSqlExecutor {
   query(sql: string, values?: unknown[]): Promise<[RowDataPacket[], unknown]>
@@ -17,6 +18,11 @@ export class LocalHistoryRepository {
 
   async close(): Promise<void> {
     await this.sql.end?.()
+  }
+
+  async executeReadOnly(sql: string, values: unknown[] = []): Promise<LocalRow[]> {
+    const [rows] = await this.sql.query(sql, values)
+    return rows as LocalRow[]
   }
 
   async getBase(generation: LocalGeneration, batteryId: string): Promise<LocalRow | null> {
@@ -74,6 +80,36 @@ export class LocalHistoryRepository {
       values,
     )
     return rows.map((row) => camelCaseRow(row as LocalRow))
+  }
+
+  async listHistoryTables(generations: LocalGeneration[]): Promise<LocalHistoryTable[]> {
+    const wanted = [...new Set(generations)]
+    const clauses: string[] = []
+    const values: unknown[] = []
+    if (wanted.includes("gen2")) {
+      clauses.push("(`table_schema` = ? AND `table_name` REGEXP ?)")
+      values.push("newenergy-battery", "^hckd_lihe_msg_log_[0-9A-Fa-f]{8}$")
+    }
+    if (wanted.includes("gen3")) {
+      clauses.push("(`table_schema` IN (?, ?) AND `table_name` REGEXP ?)")
+      values.push("kadianbao-battery04", "kadianbao-battery06", "^kdb_cycle0[46]_msg_log_[0-9A-Fa-f]{8}$")
+    }
+    if (clauses.length === 0) return []
+    const [rows] = await this.sql.query(
+      `SELECT \`table_schema\`, \`table_name\` FROM \`information_schema\`.\`tables\` WHERE ${clauses.join(" OR ")} ORDER BY \`table_schema\`, \`table_name\``,
+      values,
+    )
+    const result: LocalHistoryTable[] = []
+    for (const row of rows as LocalRow[]) {
+      const schema = String(row.table_schema ?? "")
+      const table = String(row.table_name ?? "")
+      const match = table.match(/(?:hckd_lihe_msg_log_|kdb_cycle(?:04|06)_msg_log_)([0-9A-Fa-f]{8})$/)
+      if (!match) continue
+      const batteryId = normalizeBatteryId(match[1]!)
+      const generation: LocalGeneration = schema === "newenergy-battery" ? "gen2" : "gen3"
+      result.push({ schema, table, generation, batteryId })
+    }
+    return result
   }
 
   async listExport(args: {

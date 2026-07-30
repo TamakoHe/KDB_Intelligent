@@ -72,3 +72,21 @@ test("本地库未配置时只在 local/auto 路径报错，API-only 来源约�
   assert.doesNotThrow(() => assertApiOnlySource("api", "ready"))
   assert.throws(() => assertApiOnlySource("local", "ready"), /仅支持 --source api/)
 })
+
+test("本地全库历史表枚举只接受已知 schema 和表名前缀", async () => {
+  const calls: Array<{ sql: string; values: unknown[] }> = []
+  const repository = new LocalHistoryRepository({
+    query: async (sql, values = []) => {
+      calls.push({ sql, values })
+      return [[
+        { table_schema: "newenergy-battery", table_name: "hckd_lihe_msg_log_6238482e" },
+        { table_schema: "kadianbao-battery06", table_name: "kdb_cycle06_msg_log_623b1c10" },
+        { table_schema: "other", table_name: "secret_6238482e" },
+      ], []]
+    },
+  })
+  const tables = await repository.listHistoryTables(["gen2", "gen3"])
+  assert.deepEqual(tables.map((item) => `${item.generation}:${item.batteryId}`), ["gen2:6238482E", "gen3:623B1C10"])
+  assert.match(calls[0]!.sql, /information_schema/)
+  assert.deepEqual(calls[0]!.values, ["newenergy-battery", "^hckd_lihe_msg_log_[0-9A-Fa-f]{8}$", "kadianbao-battery04", "kadianbao-battery06", "^kdb_cycle0[46]_msg_log_[0-9A-Fa-f]{8}$"])
+})

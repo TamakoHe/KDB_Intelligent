@@ -15,6 +15,12 @@ function apiClient(rows: unknown[], total = rows.length) {
   } as any
 }
 
+function apiError(message: string) {
+  return {
+    request: async () => { throw new Error(message) },
+  } as any
+}
+
 test("高级分析 API 基础表筛选只返回白名单字段匹配的数据", async () => {
   const result = await listAnalysisBatteries({
     clients: { config: config(), gen2: apiClient([]), gen3: apiClient([{ batteryId: "623B1C10", faultStatus: 108 }]) } as any,
@@ -43,6 +49,35 @@ test("高级分析 API 成功空结果时才回退本地仓储", async () => {
   assert.equal(result.source, "local")
   assert.equal(result.fallbackFrom, "api-empty")
   assert.equal(result.rows[0]?.batteryId, "623B1C10")
+})
+
+test("未指定代际时保留成功代际，并报告另一代际的 API 错误", async () => {
+  const result = await listAnalysisBatteries({
+    clients: { config: config(), gen2: apiError("[gen2] analysis.batteryBase 失败: code=401"), gen3: apiClient([{ batteryId: "623B1C10", faultStatus: 108 }]) } as any,
+    source: "auto",
+    filters: [{ field: "faultStatus", operator: "eq", value: 108 }],
+    limit: 2,
+  })
+  assert.equal(result.source, "api")
+  assert.equal(result.rows[0]?.batteryId, "623B1C10")
+  assert.deepEqual(result.warnings, ["[gen2] analysis.batteryBase 失败: code=401"])
+})
+
+test("未指定代际时 API 认证失败不会伪装成空结果回退本地", async () => {
+  let localCalls = 0
+  await assert.rejects(
+    listAnalysisBatteries({
+      clients: { config: config(), gen2: apiError("[gen2] analysis.batteryBase 失败: code=401"), gen3: apiClient([]) } as any,
+      source: "auto",
+      limit: 2,
+      localRepository: {
+        listBatteryBase: async () => { localCalls++; return [] },
+        listRealtime: async () => [],
+      } as any,
+    }),
+    /未执行本地回退.*code=401/,
+  )
+  assert.equal(localCalls, 0)
 })
 
 test("高级分析历史读取要求单电池并使用时间参数", async () => {

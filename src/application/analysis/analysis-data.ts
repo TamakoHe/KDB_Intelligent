@@ -17,6 +17,7 @@ export type AnalysisReadResult = {
   source: "api" | "local"
   fallbackFrom?: "api-empty"
   isHistorical?: true
+  warnings?: string[]
 }
 
 const API_PAGE_SIZE = 8_000
@@ -34,10 +35,28 @@ export async function listAnalysisBatteries(args: {
 }): Promise<AnalysisReadResult> {
   const generations = args.generation ? [args.generation] : ["gen2", "gen3"] as const
   const apiRows: Record<string, unknown>[] = []
-  for (const generation of generations) {
-    apiRows.push(...await listApiBatteryGeneration({ ...args, generation }))
+  const apiWarnings: string[] = []
+  if (args.source !== "local") {
+    for (const generation of generations) {
+      try {
+        apiRows.push(...await listApiBatteryGeneration({ ...args, generation }))
+      } catch (error) {
+        // An explicitly selected generation is an all-or-nothing request. For an
+        // unspecified generation, keep a successful sibling generation usable but
+        // surface the failed generation instead of silently falling back to local.
+        if (args.generation) throw error
+        apiWarnings.push(error instanceof Error ? error.message : String(error))
+      }
+    }
   }
-  if (args.source !== "local" && apiRows.length > 0) return { rows: apiRows.slice(0, args.limit), source: "api" }
+  if (args.source !== "local" && apiRows.length > 0) return {
+    rows: apiRows.slice(0, args.limit),
+    source: "api",
+    ...(apiWarnings.length > 0 ? { warnings: apiWarnings } : {}),
+  }
+  if (apiWarnings.length > 0) {
+    throw new Error(`高级分析 API 查询失败，未执行本地回退：${apiWarnings.join("；")}`)
+  }
   if (args.source === "api") return { rows: [], source: "api" }
 
   const localRows: Record<string, unknown>[] = []

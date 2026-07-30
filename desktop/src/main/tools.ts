@@ -6,6 +6,9 @@ import { z } from "zod"
 import type { AppSettings, ResultCard } from "../shared.js"
 import { analysisRequestSchema } from "./analysis-contract.js"
 import { cancelAnalysisAction, createAnalysisPreview, runAnalysisAction } from "./analysis-host.js"
+import { createScanPreview, pauseScanTask, resumeScanTask, runScanAction, stopScanTask } from "./scan-host.js"
+import { createSqlPreview, runSqlAction } from "./sql-expert.js"
+import { scanRequestSchema, sqlRequestSchema } from "./scan-contract.js"
 
 type PlannedStep = { id: string; purpose: string; argv: string[] }
 type PendingAction = { argv: string[]; confirmationToken: string }
@@ -23,7 +26,9 @@ const TOP_LEVEL = new Set(["battery", "status", "ready", "command-ready", "comma
 
 export const modelTools = [
   definition("run_kdb_cli_plan", "按 KDB CLI 技能执行一个受控命令计划。只传 kdb 后的 argv 数组，不要传 npm/node/shell。复杂需求可在一个计划内给出多个步骤；写操作只会产生预览，绝不能加入 --confirm。", cliPlanSchema),
-  definition("run_kdb_analysis", "为动态筛选和跨电池只读分析生成受限 JavaScript 预览。脚本必须定义 async function main(kdb)，只能调用受控 kdb.read/kdb.export API；不要生成 SQL、Shell、Node、npm、OpenClaw 或文件路径。桌面端会显示脚本并等待用户点击运行分析。", analysisRequestSchema),
+  definition("run_kdb_analysis", "为动态筛选和跨电池只读分析生成受限 JavaScript 预览。read.batteries 只读当前基础表快照，不是历史故障查询；read.history 必须指定明确电池 ID，不能隐式扫描所有电池历史分表。用户要求所有历史故障电池但未给 ID 清单时先说明限制，不要生成误导脚本。脚本必须定义 async function main(kdb)，只能调用受控 kdb.read/kdb.export API；不要生成 SQL、Shell、Node、npm、OpenClaw 或文件路径。桌面端会显示脚本并等待用户点击运行分析。", analysisRequestSchema),
+  definition("run_kdb_scan", "创建可恢复的全库历史扫描预览。用于动态筛选所有电池、跨代际历史分表和长时间任务；普通 CLI 或 run_kdb_analysis 能完成时不要使用。source 可为 api/local/both；模型只提交时间范围和白名单筛选条件，不得生成 SQL、Shell、文件路径或控制命令。用户点击开始扫描后，桌面端会分批执行并显示进度。", scanRequestSchema),
+  definition("run_kdb_sql", "创建专家只读 SQL 预览，仅用于用户明确要求复杂本地历史库查询的场景。只能生成单条 SELECT 或 WITH SELECT；不得生成写操作、文件操作、注释、多语句、系统外 schema 或控制/OTA 命令。执行前桌面端显示 SQL 和风险评估并等待用户点击。", sqlRequestSchema),
 ]
 
 export async function executeTool(name: string, rawArgs: unknown, settings: AppSettings): Promise<{ model: unknown; cards: ResultCard[] }> {
@@ -35,6 +40,26 @@ export async function executeTool(name: string, rawArgs: unknown, settings: AppS
       return { model: { phase: "preview", actionId: preview.actionId, purpose: parsed.data.purpose, source: parsed.data.source, permissions: parsed.data.permissions }, cards: [preview.card] }
     } catch (error) {
       return toolError("高级分析被拒绝", error instanceof Error ? error.message : String(error))
+    }
+  }
+  if (name === "run_kdb_scan") {
+    const parsed = scanRequestSchema.safeParse(rawArgs)
+    if (!parsed.success) return toolError("全库扫描请求无效", parsed.error.issues.map((item) => item.message).join("；"))
+    try {
+      const preview = createScanPreview(parsed.data)
+      return { model: { phase: "preview", actionId: preview.actionId, task: parsed.data }, cards: [preview.card] }
+    } catch (error) {
+      return toolError("全库扫描被拒绝", error instanceof Error ? error.message : String(error))
+    }
+  }
+  if (name === "run_kdb_sql") {
+    const parsed = sqlRequestSchema.safeParse(rawArgs)
+    if (!parsed.success) return toolError("专家 SQL 请求无效", parsed.error.issues.map((item) => item.message).join("；"))
+    try {
+      const preview = await createSqlPreview(parsed.data, settings)
+      return { model: { phase: "preview", actionId: preview.actionId, purpose: parsed.data.purpose }, cards: [preview.card] }
+    } catch (error) {
+      return toolError("专家 SQL 被拒绝", error instanceof Error ? error.message : String(error))
     }
   }
   if (name !== "run_kdb_cli_plan") return toolError("未知工具", `不允许的工具: ${name}`)
@@ -79,6 +104,12 @@ export async function confirmAction(actionId: string, settings: AppSettings): Pr
 export async function runAnalysis(actionId: string, settings: AppSettings): Promise<ResultCard> {
   return runAnalysisAction(actionId, settings)
 }
+
+export async function runScan(actionId: string, settings: AppSettings): Promise<ResultCard> { return runScanAction(actionId, settings) }
+export async function runSql(actionId: string, settings: AppSettings): Promise<ResultCard> { return runSqlAction(actionId, settings) }
+export async function resumeScan(taskId: string, settings: AppSettings): Promise<ResultCard> { return resumeScanTask(taskId, settings) }
+export function pauseScan(taskId: string): void { pauseScanTask(taskId) }
+export function stopScan(taskId: string): void { stopScanTask(taskId) }
 
 export function cancelAction(actionId: string): void {
   pendingActions.delete(actionId)

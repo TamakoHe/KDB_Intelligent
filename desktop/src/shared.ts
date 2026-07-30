@@ -3,7 +3,7 @@ export type ThemeMode = "dark" | "light" | "system"
 
 export type ResultCard = {
   id: string
-  kind: "status" | "export" | "preview" | "analysis-preview" | "analysis" | "success" | "error" | "data"
+  kind: "status" | "export" | "preview" | "analysis-preview" | "analysis" | "scan-preview" | "scan" | "sql-preview" | "sql" | "success" | "error" | "data"
   title: string
   summary: string
   data?: Record<string, unknown>
@@ -19,6 +19,34 @@ export type ChatReply = {
 }
 
 export type AnalysisActionResult = ResultCard
+
+export type AnalysisProgress = {
+  actionId: string
+  phase: "starting" | "reading" | "exporting" | "completed" | "cancelled" | "failed"
+  message: string
+  method?: string
+  currentBatteryId?: string
+  scanned?: number
+  matched?: number
+  exportedRows?: number
+  total?: number
+}
+
+export type ScanProgress = {
+  taskId: string
+  phase: "queued" | "running" | "paused" | "completed" | "stopped" | "failed"
+  message: string
+  source?: string
+  generation?: string
+  batch?: number
+  scanned?: number
+  matched?: number
+  rows?: number
+  failed?: number
+  total?: number
+  cursor?: string
+}
+export type ScanTaskSnapshot = { taskId: string; status: ScanProgress["phase"]; purpose: string; scanned: number; matched: number; rows: number; failed: number; cursor: number }
 
 export type AppSettings = {
   theme: ThemeMode
@@ -72,7 +100,20 @@ export type KdbDesktopApi = {
   }
   history: { list(): Promise<ChatHistoryItem[]>; clear(): Promise<void> }
   chat: { send(text: string): Promise<ChatReply> }
-  action: { confirm(actionId: string): Promise<ResultCard>; runAnalysis(actionId: string): Promise<ResultCard>; cancel(actionId: string): Promise<void> }
+  action: {
+    confirm(actionId: string): Promise<ResultCard>
+    runAnalysis(actionId: string): Promise<ResultCard>
+    cancel(actionId: string): Promise<void>
+    runScan(actionId: string): Promise<ResultCard>
+    pauseScan(taskId: string): Promise<void>
+    resumeScan(taskId: string): Promise<ResultCard>
+    stopScan(taskId: string): Promise<void>
+    deleteScan(taskId: string): Promise<void>
+    listActiveScans(): Promise<ScanTaskSnapshot[]>
+    runSql(actionId: string): Promise<ResultCard>
+    onProgress(listener: (progress: AnalysisProgress) => void): () => void
+    onScanProgress(listener: (progress: ScanProgress) => void): () => void
+  }
   file: { reveal(path: string): Promise<void>; open(path: string): Promise<void> }
   clipboard: { writeText(value: string): Promise<void> }
 }
